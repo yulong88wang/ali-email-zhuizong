@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>邮件追踪仪表盘</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="app-container">
+    <header class="app-header">
+      <div class="brand">
+        <span class="icon">📬</span>
+        <h2>外贸邮件追踪看板</h2>
+      </div>
+      <div class="header-actions">
+        <button id="refresh-btn" class="icon-btn" title="刷新数据">🔄</button>
+        <button id="settings-toggle" class="icon-btn" title="设置云端节点">⚙️</button>
+      </div>
+    </header>
+
+    <!-- 设置面板 -->
+    <section id="settings-panel" class="settings-panel hidden">
+      <label for="server-url">Cloudflare Worker 云端地址：</label>
+      <div class="input-group">
+        <input type="text" id="server-url" placeholder="https://xxx.workers.dev" />
+        <button id="save-server-btn">保存</button>
+      </div>
+      <p class="help-text">首次使用请填入你部署的免费 Cloudflare Worker 网址。</p>
+    </section>
+
+    <!-- 总体统计 -->
+    <section class="summary-cards">
+      <div class="card">
+        <span class="label">已发追踪</span>
+        <span id="total-sent" class="value">0</span>
+      </div>
+      <div class="card active">
+        <span class="label">已读总数</span>
+        <span id="total-opened" class="value">0</span>
+      </div>
+      <div class="card highlight">
+        <span class="label">打开率</span>
+        <span id="open-rate" class="value">0%</span>
+      </div>
+    </section>
+
+    <!-- 追踪列表 -->
+    <main class="list-section">
+      <div class="list-header">
+        <h3>最近外发邮件动态</h3>
+      </div>
+      <div id="records-list" class="records-list">
+        <div class="empty-state">
+          <span>暂无追踪数据</span>
+          <p>在网易邮箱写信并点击发送后，这里将实时更新已读次数、时间与地点。</p>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

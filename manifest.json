@@ -1,0 +1,31 @@
+{
+  "manifest_version": 3,
+  "name": "外贸企业邮箱专属追踪助手 (Email Tracker)",
+  "version": "1.2.0",
+  "description": "专为网易、阿里等外贸企业邮箱定制的邮件已读追踪插件，实时记录收件人查看次数、打开时间、地理位置与设备信息。",
+  "permissions": [
+    "storage",
+    "activeTab"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "查看邮件追踪看板"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "<all_urls>"
+      ],
+      "all_frames": true,
+      "js": ["content.js"],
+      "css": ["content.css"],
+      "run_at": "document_end"
+    }
+  ]
+}

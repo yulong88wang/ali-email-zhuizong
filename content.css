@@ -1,0 +1,226 @@
+/* 网易、阿里企业邮箱追踪插件悬浮小窗样式 */
+#netease-tracker-bar {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  z-index: 999999;
+  background: #1e1e24;
+  color: #f3f4f6;
+  width: 280px;
+  border-radius: 12px;
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.4), 0 8px 10px -6px rgba(0, 0, 0, 0.3);
+  border: 1px solid #374151;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-size: 13px;
+  line-height: 1.5;
+  transition: all 0.2s ease;
+}
+
+#netease-tracker-bar .nt-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  border-bottom: 1px solid #2d3748;
+  font-weight: 600;
+  color: #60a5fa;
+}
+
+#netease-tracker-bar .nt-icon-btn {
+  background: transparent;
+  border: none;
+  color: #9ca3af;
+  font-size: 18px;
+  cursor: pointer;
+  padding: 0 4px;
+}
+#netease-tracker-bar .nt-icon-btn:hover {
+  color: #ffffff;
+}
+
+#netease-tracker-bar .nt-body {
+  padding: 12px 14px;
+}
+
+#netease-tracker-bar .nt-switch {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  margin-bottom: 10px;
+}
+
+#netease-tracker-bar .nt-label-text {
+  font-weight: 500;
+  color: #e5e7eb;
+}
+
+#netease-tracker-bar .nt-actions {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+#netease-tracker-bar .nt-action-btn {
+  flex: 1;
+  background: #2563eb;
+  color: #ffffff;
+  border: none;
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+#netease-tracker-bar .nt-action-btn:hover {
+  background: #1d4ed8;
+}
+
+#netease-tracker-bar .nt-tip {
+  font-size: 11px;
+  color: #10b981;
+  word-break: break-all;
+  margin-top: 4px;
+}
+
+/* 邮件列表行内的实时状态高亮标签 (实体色块) */
+.nt-inline-tag {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 4px !important;
+  padding: 2px 8px !important;
+  border-radius: 4px !important;
+  font-size: 11px !important;
+  line-height: 16px !important;
+  font-weight: 700 !important;
+  margin-right: 8px !important;
+  vertical-align: middle !important;
+  white-space: nowrap !important;
+  flex-shrink: 0 !important;
+  cursor: pointer !important;
+  z-index: 99 !important;
+  transition: transform 0.1s ease, box-shadow 0.1s ease !important;
+}
+
+.nt-inline-tag:hover {
+  transform: translateY(-1px) !important;
+}
+
+.nt-inline-tag.opened {
+  background: #10b981 !important;
+  color: #ffffff !important;
+  box-shadow: 0 1px 3px rgba(16, 185, 129, 0.4) !important;
+}
+
+.nt-inline-tag.unopened {
+  background: #9ca3af !important;
+  color: #ffffff !important;
+}
+
+/* 鼠标悬停时的历史轨迹详细浮窗 (自带透明接驳垫，防鼠标滑脱) */
+#nt-hover-popover {
+  position: fixed;
+  z-index: 999999999;
+  background: #182234;
+  border: 1px solid #3b82f6;
+  border-radius: 10px;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.7), 0 4px 14px rgba(0, 0, 0, 0.5);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  color: #f1f5f9;
+  padding: 14px 18px;
+  width: 500px;
+  max-height: 380px;
+  display: none;
+}
+
+/* 顶部隐形感应带，填补标签到弹窗之间的空间 */
+#nt-hover-popover::before {
+  content: "";
+  position: absolute;
+  top: -12px;
+  left: 0;
+  width: 100%;
+  height: 12px;
+  background: transparent;
+}
+
+.nt-popover-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-bottom: 8px;
+  margin-bottom: 8px;
+  border-bottom: 1px solid #334155;
+  font-size: 13px;
+  font-weight: 700;
+  color: #38bdf8;
+}
+
+.nt-popover-close-btn {
+  background: transparent;
+  border: none;
+  color: #94a3b8;
+  font-size: 18px;
+  cursor: pointer;
+  line-height: 1;
+  padding: 0 4px;
+}
+
+.nt-popover-close-btn:hover {
+  color: #f87171;
+}
+
+.nt-table-scroll-container {
+  max-height: 290px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.nt-table-scroll-container::-webkit-scrollbar {
+  width: 6px;
+}
+.nt-table-scroll-container::-webkit-scrollbar-thumb {
+  background: #334155;
+  border-radius: 3px;
+}
+.nt-table-scroll-container::-webkit-scrollbar-thumb:hover {
+  background: #475569;
+}
+
+.nt-history-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.nt-history-table tr {
+  border-bottom: 1px solid rgba(51, 65, 85, 0.4);
+}
+
+.nt-history-table tr:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.nt-history-table td {
+  padding: 7px 4px;
+}
+
+.nt-col-count {
+  font-weight: 700;
+  color: #10b981;
+  width: 85px;
+}
+
+.nt-col-location {
+  color: #f1f5f9;
+}
+
+.nt-col-time {
+  color: #94a3b8;
+  text-align: right;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 11px;
+  width: 155px;
+}
