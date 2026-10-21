@@ -225,8 +225,8 @@
   function renderBadges() {
     if (!cachedRecords || cachedRecords.length === 0) return;
 
-    // A. 阿里企业邮箱列表结构 (.sc-iYAFwr)
-    const aliRows = document.querySelectorAll(".sc-iYAFwr");
+    // 1. 标准语义化容器优先 (阿里企业邮箱 div[role="listitem"] / article，永久兼容前端框架重编译)
+    const aliRows = document.querySelectorAll('div[role="listitem"], .sc-iYAFwr, .sc-hbNLnR, div[class*="item"][role="listitem"]');
     if (aliRows.length > 0) {
       aliRows.forEach((row) => {
         const rowText = row.innerText.toLowerCase();
@@ -235,7 +235,8 @@
           if (!username || username.length < 2) return;
 
           if (rowText.includes(username)) {
-            const subjectCol = row.children[4] || row.querySelector('article, [class*="subject"]') || row;
+            // 阿里邮箱中 article 元素代表邮件主题列，空间大、无溢出遮挡
+            const subjectCol = row.querySelector("article") || row.children[4] || row.querySelector('[class*="subject"]') || row;
             let badge = row.querySelector(".nt-inline-tag");
             const isOpened = rec.openCount > 0;
             const badgeClass = isOpened ? "nt-inline-tag opened" : "nt-inline-tag unopened";
@@ -287,7 +288,7 @@
       return;
     }
 
-    // B. 通用/网易企业邮箱匹配模式
+    // 2. 通用/网易企业邮箱及传统表格匹配模式
     cachedRecords.forEach((rec) => {
       const username = (rec.to || "").split("@")[0].toLowerCase();
       if (!username || username.length < 2) return;
@@ -300,7 +301,7 @@
           const parent = node.parentElement;
           if (!parent || parent.classList?.contains("nt-inline-tag")) continue;
 
-          const row = parent.closest('tr, [role="row"], .mail-item, .list-item, li, div[class*="item"]');
+          const row = parent.closest('tr, [role="row"], [role="listitem"], .mail-item, .list-item, li, div[class*="item"]');
           if (!row) continue;
 
           let badge = row.querySelector(".nt-inline-tag");
@@ -331,7 +332,12 @@
               e.stopPropagation();
               showHistoryPopover(badge, rec, true);
             });
-            row.appendChild(badge);
+            const targetCol = row.querySelector("article") || row.querySelector('[class*="subject"]') || parent;
+            if (targetCol.firstChild) {
+              targetCol.insertBefore(badge, targetCol.firstChild);
+            } else {
+              targetCol.appendChild(badge);
+            }
           } else {
             badge.className = badgeClass;
             badge.innerText = badgeText;
