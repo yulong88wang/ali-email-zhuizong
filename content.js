@@ -120,40 +120,66 @@
 
     if (pin) isPinned = true;
 
-    if (!rec || rec.openCount === 0) {
+    const totalActions = (rec.clientOpenCount || 0) + (rec.selfOpenCount || 0);
+    if (!rec || totalActions === 0) {
       popover.style.display = "none";
       return;
     }
 
     const historyList = [...(rec.history || [])];
-    if (historyList.length === 0 && rec.openCount > 0) {
+    if (historyList.length === 0 && rec.lastOpenedAt) {
       const parts = (rec.lastLocation || "").split(" ");
       historyList.push({
         time: rec.lastOpenedAt,
         country: parts[0] || "",
-        city: parts[1] || ""
+        city: parts[1] || "",
+        isSelf: false
       });
     }
     historyList.reverse();
 
-    const totalCount = rec.openCount || historyList.length;
+    // 客户有效阅读的编号计算（从 clientOpenCount 倒序递减）
+    let clientSeq = rec.clientOpenCount || 0;
 
-    let rowsHtml = historyList.map((item, idx) => {
-      const currentNumber = totalCount - idx;
+    let rowsHtml = historyList.map((item) => {
       const locStr = formatLocation(item.country, item.city);
       const timeStr = formatFullDateTime(item.time);
-      return `
-        <tr>
-          <td class="nt-col-count">第 ${currentNumber} 次查看</td>
-          <td class="nt-col-location">在 ${locStr} 查看</td>
-          <td class="nt-col-time">${timeStr}</td>
-        </tr>
-      `;
+      const envBadge = item.envNote ? `<span class="nt-env-tag">${item.envNote}</span>` : "";
+
+      if (item.isSelf) {
+        return `
+          <tr class="nt-row-self">
+            <td class="nt-col-count"><span class="nt-tag-self">本机自测</span></td>
+            <td class="nt-col-location">在 ${locStr} 查看</td>
+            <td class="nt-col-time">${timeStr}</td>
+          </tr>
+        `;
+      } else {
+        const curNum = clientSeq--;
+        return `
+          <tr class="nt-row-client">
+            <td class="nt-col-count"><span class="nt-tag-client">第 ${curNum} 次客户查看</span></td>
+            <td class="nt-col-location">在 ${locStr} 查看 ${envBadge}</td>
+            <td class="nt-col-time">${timeStr}</td>
+          </tr>
+        `;
+      }
     }).join("");
+
+    let summaryText = "";
+    if (rec.clientOpenCount > 0 && rec.selfOpenCount > 0) {
+      summaryText = `客户有效已读 ${rec.clientOpenCount} 次 · 本机自测 ${rec.selfOpenCount} 次`;
+    } else if (rec.clientOpenCount > 0) {
+      summaryText = `客户已读 ${rec.clientOpenCount} 次`;
+    } else if (rec.selfOpenCount > 0) {
+      summaryText = `客户未读 (本机自测 ${rec.selfOpenCount} 次)`;
+    } else {
+      summaryText = `暂无记录`;
+    }
 
     popover.innerHTML = `
       <div class="nt-popover-header">
-        <span>📊 邮件阅读轨迹明细 (累计 ${totalCount} 次)</span>
+        <span>📊 邮件阅读轨迹明细 (${summaryText})</span>
         <button class="nt-popover-close-btn" title="关闭">×</button>
       </div>
       <div class="nt-table-scroll-container">
@@ -174,7 +200,7 @@
     }
 
     const rect = badge.getBoundingClientRect();
-    const popoverWidth = 500;
+    const popoverWidth = 560;
     let leftPos = rect.left;
     if (leftPos + popoverWidth > window.innerWidth - 20) {
       leftPos = window.innerWidth - popoverWidth - 20;
@@ -210,34 +236,105 @@
     });
   }
 
-  // 智能清洗发件人自身查看产生的脏数据
-  function cleanSenderSelfRecords(record) {
-    if (!record) return record;
-    if (!record.history || record.history.length === 0) return record;
-
+  // 智能识别单条查看事件来源（区分客户查看与发件人自查，并识别企业安全网关与设备特征）
+  function classifyHistoryItem(item) {
     const myUA = (navigator.userAgent || "").trim();
-    // 智能剔除发件人自身在本地浏览器中预览、草稿或已发送箱打开时产生的自读记录
-    const validHistory = record.history.filter((evt) => {
-      if (evt.userAgent && evt.userAgent.trim() === myUA) {
-        return false;
+    const isSelf = !!(item.userAgent && item.userAgent.trim() === myUA);
+
+    let envNote = "";
+    if (item.userAgent) {
+      if (item.userAgent.includes("GoogleImageProxy") || item.ip === "66.249.84.198" || item.ip === "66.249.84.199") {
+        envNote = "Google邮箱代理";
+      } else if (item.ip === "48.209.223.68" || item.userAgent.includes("Chrome/109")) {
+        envNote = "微软企业网关预读";
+      } else if (item.userAgent.includes("Foxmail")) {
+        envNote = "Foxmail客户端";
+      } else if (item.userAgent.includes("Outlook")) {
+        envNote = "Outlook客户端";
+      } else if (item.userAgent.includes("iPhone") || item.userAgent.includes("iPad")) {
+        envNote = "iOS移动端";
+      } else if (item.userAgent.includes("Android")) {
+        envNote = "Android移动端";
       }
-      return true;
-    });
-
-    const cleaned = { ...record };
-    cleaned.history = validHistory;
-    cleaned.openCount = validHistory.length;
-
-    if (validHistory.length > 0) {
-      const last = validHistory[validHistory.length - 1];
-      cleaned.lastOpenedAt = last.time;
-      cleaned.lastLocation = `${last.country} ${last.city}`.trim();
-    } else {
-      cleaned.lastOpenedAt = null;
-      cleaned.lastLocation = "";
     }
 
-    return cleaned;
+    return {
+      ...item,
+      isSelf,
+      envNote
+    };
+  }
+
+  // 对单封邮件数据做结构化处理：计算客户真实打开与发件人自查
+  function processRecord(rec) {
+    if (!rec) return rec;
+    const rawHistory = rec.history || [];
+    const classifiedHistory = rawHistory.map(classifyHistoryItem);
+
+    // 区分客户真实查看记录与本机自读记录
+    const clientHistory = classifiedHistory.filter((h) => !h.isSelf);
+    const selfHistory = classifiedHistory.filter((h) => h.isSelf);
+
+    const clientOpenCount = clientHistory.length;
+    const selfOpenCount = selfHistory.length;
+
+    let lastClientOpenedAt = null;
+    let lastClientLocation = "";
+    if (clientHistory.length > 0) {
+      const last = clientHistory[clientHistory.length - 1];
+      lastClientOpenedAt = last.time;
+      lastClientLocation = formatLocation(last.country, last.city);
+    }
+
+    let lastSelfOpenedAt = null;
+    let lastSelfLocation = "";
+    if (selfHistory.length > 0) {
+      const last = selfHistory[selfHistory.length - 1];
+      lastSelfOpenedAt = last.time;
+      lastSelfLocation = formatLocation(last.country, last.city);
+    }
+
+    return {
+      ...rec,
+      history: classifiedHistory,
+      clientHistory,
+      selfHistory,
+      clientOpenCount,
+      selfOpenCount,
+      lastClientOpenedAt,
+      lastClientLocation,
+      lastSelfOpenedAt,
+      lastSelfLocation
+    };
+  }
+
+  // 生成列表行内徽章配置
+  function getBadgeConfig(rec) {
+    const isClientOpened = (rec.clientOpenCount || 0) > 0;
+    const isSelfOnly = !isClientOpened && (rec.selfOpenCount || 0) > 0;
+
+    if (isClientOpened) {
+      const timeStr = formatFullDateTime(rec.lastClientOpenedAt);
+      const locPart = rec.lastClientLocation ? ` · ${rec.lastClientLocation}` : "";
+      const timePart = timeStr ? ` · ${timeStr}` : "";
+      return {
+        badgeClass: "nt-inline-tag opened",
+        badgeText: `✓✓ 客户已读 ${rec.clientOpenCount}次${locPart}${timePart}`
+      };
+    } else if (isSelfOnly) {
+      const timeStr = formatFullDateTime(rec.lastSelfOpenedAt);
+      const locPart = rec.lastSelfLocation ? ` · ${rec.lastSelfLocation}` : "";
+      const timePart = timeStr ? ` · ${timeStr}` : "";
+      return {
+        badgeClass: "nt-inline-tag self-opened",
+        badgeText: `✓ 客户未读 (本机自测${locPart}${timePart})`
+      };
+    } else {
+      return {
+        badgeClass: "nt-inline-tag unopened",
+        badgeText: `✓ 未读`
+      };
+    }
   }
 
   async function updateRecords() {
@@ -246,7 +343,7 @@
       const res = await fetch(`${serverUrl}/api/records`);
       const data = await res.json();
       if (data && data.records) {
-        cachedRecords = data.records.map(cleanSenderSelfRecords);
+        cachedRecords = data.records.map(processRecord);
         renderBadges();
       }
     } catch (e) {}
@@ -268,24 +365,7 @@
             // 阿里邮箱中 article 元素代表邮件主题列，空间大、无溢出遮挡
             const subjectCol = row.querySelector("article") || row.children[4] || row.querySelector('[class*="subject"]') || row;
             let badge = row.querySelector(".nt-inline-tag");
-            const isOpened = rec.openCount > 0;
-            const badgeClass = isOpened ? "nt-inline-tag opened" : "nt-inline-tag unopened";
-
-            let lastLocText = "";
-            if (rec.history && rec.history.length > 0) {
-              const lastEvt = rec.history[rec.history.length - 1];
-              lastLocText = formatLocation(lastEvt.country, lastEvt.city);
-            } else if (rec.lastLocation) {
-              const parts = rec.lastLocation.split(" ");
-              lastLocText = formatLocation(parts[0], parts[1]);
-            }
-
-            const fullTime = formatFullDateTime(rec.lastOpenedAt);
-            const locPart = lastLocText ? ` · ${lastLocText}` : "";
-            const timePart = fullTime ? ` · ${fullTime}` : "";
-            const badgeText = isOpened
-              ? `✓✓ 已读 ${rec.openCount}次${locPart}${timePart}`
-              : `✓ 未读`;
+            const { badgeClass, badgeText } = getBadgeConfig(rec);
 
             if (!badge) {
               badge = document.createElement("span");
@@ -337,24 +417,7 @@
           if (!row) continue;
 
           let badge = row.querySelector(".nt-inline-tag");
-          const isOpened = rec.openCount > 0;
-          const badgeClass = isOpened ? "nt-inline-tag opened" : "nt-inline-tag unopened";
-
-          let lastLocText = "";
-          if (rec.history && rec.history.length > 0) {
-            const lastEvt = rec.history[rec.history.length - 1];
-            lastLocText = formatLocation(lastEvt.country, lastEvt.city);
-          } else if (rec.lastLocation) {
-            const parts = rec.lastLocation.split(" ");
-            lastLocText = formatLocation(parts[0], parts[1]);
-          }
-
-          const fullTime = formatFullDateTime(rec.lastOpenedAt);
-          const locPart = lastLocText ? ` · ${lastLocText}` : "";
-          const timePart = fullTime ? ` · ${fullTime}` : "";
-          const badgeText = isOpened
-            ? `✓✓ 已读 ${rec.openCount}次${locPart}${timePart}`
-            : `✓ 未读`;
+          const { badgeClass, badgeText } = getBadgeConfig(rec);
 
           if (!badge) {
             badge = document.createElement("span");

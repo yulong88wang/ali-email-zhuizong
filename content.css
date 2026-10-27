@@ -114,6 +114,12 @@
   box-shadow: 0 1px 3px rgba(16, 185, 129, 0.4) !important;
 }
 
+.nt-inline-tag.self-opened {
+  background: #64748b !important;
+  color: #f8fafc !important;
+  box-shadow: 0 1px 3px rgba(100, 116, 139, 0.3) !important;
+}
+
 .nt-inline-tag.unopened {
   background: #9ca3af !important;
   color: #ffffff !important;
@@ -130,7 +136,7 @@
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   color: #f1f5f9;
   padding: 14px 18px;
-  width: 500px;
+  width: 560px;
   max-height: 380px;
   display: none;
 }
@@ -209,8 +215,7 @@
 
 .nt-col-count {
   font-weight: 700;
-  color: #10b981;
-  width: 85px;
+  width: 130px;
 }
 
 .nt-col-location {
@@ -223,4 +228,50 @@
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   font-size: 11px;
   width: 155px;
+}
+
+/* 客户有效已读标签 */
+.nt-tag-client {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 6px;
+  background: rgba(16, 185, 129, 0.2);
+  color: #34d399;
+  border: 1px solid rgba(16, 185, 129, 0.45);
+  border-radius: 4px;
+  font-weight: 700;
+  font-size: 11px;
+}
+
+/* 发件人本机自读/预览标签 */
+.nt-history-table tr.nt-row-self {
+  opacity: 0.72;
+}
+.nt-history-table tr.nt-row-self:hover {
+  opacity: 1;
+  background: rgba(255, 255, 255, 0.05);
+}
+.nt-tag-self {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 6px;
+  background: rgba(148, 163, 184, 0.15);
+  color: #94a3b8;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 500;
+}
+
+/* 智能环境备注 (如 微软企业网关预读) */
+.nt-env-tag {
+  display: inline-block;
+  font-size: 10px;
+  color: #60a5fa;
+  margin-left: 6px;
+  padding: 1px 5px;
+  background: rgba(59, 130, 246, 0.18);
+  border: 1px solid rgba(59, 130, 246, 0.3);
+  border-radius: 3px;
+  vertical-align: middle;
 }

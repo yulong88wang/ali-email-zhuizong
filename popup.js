@@ -55,32 +55,69 @@ document.addEventListener("DOMContentLoaded", async () => {
     return `${m}-${d} ${h}:${min}`;
   }
 
-  function cleanSenderSelfRecords(record) {
-    if (!record) return record;
-    if (!record.history || record.history.length === 0) return record;
-
+  function classifyHistoryItem(item) {
     const myUA = (navigator.userAgent || "").trim();
-    const validHistory = record.history.filter((evt) => {
-      if (evt.userAgent && evt.userAgent.trim() === myUA) {
-        return false;
+    const isSelf = !!(item.userAgent && item.userAgent.trim() === myUA);
+
+    let envNote = "";
+    if (item.userAgent) {
+      if (item.userAgent.includes("GoogleImageProxy") || item.ip === "66.249.84.198" || item.ip === "66.249.84.199") {
+        envNote = "Google邮箱代理";
+      } else if (item.ip === "48.209.223.68" || item.userAgent.includes("Chrome/109")) {
+        envNote = "微软企业网关预读";
+      } else if (item.userAgent.includes("Foxmail")) {
+        envNote = "Foxmail客户端";
+      } else if (item.userAgent.includes("Outlook")) {
+        envNote = "Outlook客户端";
+      } else if (item.userAgent.includes("iPhone") || item.userAgent.includes("iPad")) {
+        envNote = "iOS移动端";
+      } else if (item.userAgent.includes("Android")) {
+        envNote = "Android移动端";
       }
-      return true;
-    });
-
-    const cleaned = { ...record };
-    cleaned.history = validHistory;
-    cleaned.openCount = validHistory.length;
-
-    if (validHistory.length > 0) {
-      const last = validHistory[validHistory.length - 1];
-      cleaned.lastOpenedAt = last.time;
-      cleaned.lastLocation = `${last.country} ${last.city}`.trim();
-    } else {
-      cleaned.lastOpenedAt = null;
-      cleaned.lastLocation = "";
     }
 
-    return cleaned;
+    return { ...item, isSelf, envNote };
+  }
+
+  function processRecord(rec) {
+    if (!rec) return rec;
+    const rawHistory = rec.history || [];
+    const classifiedHistory = rawHistory.map(classifyHistoryItem);
+
+    const clientHistory = classifiedHistory.filter((h) => !h.isSelf);
+    const selfHistory = classifiedHistory.filter((h) => h.isSelf);
+
+    const clientOpenCount = clientHistory.length;
+    const selfOpenCount = selfHistory.length;
+
+    let lastClientOpenedAt = null;
+    let lastClientLocation = "";
+    if (clientHistory.length > 0) {
+      const last = clientHistory[clientHistory.length - 1];
+      lastClientOpenedAt = last.time;
+      lastClientLocation = `${last.country} ${last.city}`.trim();
+    }
+
+    let lastSelfOpenedAt = null;
+    let lastSelfLocation = "";
+    if (selfHistory.length > 0) {
+      const last = selfHistory[selfHistory.length - 1];
+      lastSelfOpenedAt = last.time;
+      lastSelfLocation = `${last.country} ${last.city}`.trim();
+    }
+
+    return {
+      ...rec,
+      history: classifiedHistory,
+      clientHistory,
+      selfHistory,
+      clientOpenCount,
+      selfOpenCount,
+      lastClientOpenedAt,
+      lastClientLocation,
+      lastSelfOpenedAt,
+      lastSelfLocation
+    };
   }
 
   // 加载数据
@@ -101,11 +138,11 @@ document.addEventListener("DOMContentLoaded", async () => {
       const res = await fetch(`${baseUrl}/api/records`);
       const data = await res.json();
       const rawRecords = data.records || [];
-      const records = rawRecords.map(cleanSenderSelfRecords);
+      const records = rawRecords.map(processRecord);
 
-      // 更新汇总卡片
+      // 更新汇总卡片：以真实客户打开为准
       const totalSent = records.length;
-      const openedCount = records.filter(r => r.openCount > 0).length;
+      const openedCount = records.filter(r => (r.clientOpenCount || 0) > 0).length;
       const rate = totalSent > 0 ? Math.round((openedCount / totalSent) * 100) : 0;
 
       totalSentEl.textContent = totalSent;
@@ -124,13 +161,26 @@ document.addEventListener("DOMContentLoaded", async () => {
 
       // 渲染列表
       recordsList.innerHTML = records.map(item => {
-        const isOpened = item.openCount > 0;
-        const statusBadge = isOpened
-          ? `<span class="badge opened">已读 ${item.openCount} 次</span>`
-          : `<span class="badge unopened">未读</span>`;
+        const isClientOpened = (item.clientOpenCount || 0) > 0;
+        const isSelfOnly = !isClientOpened && (item.selfOpenCount || 0) > 0;
 
-        const locationText = item.lastLocation ? `📍 ${item.lastLocation}` : "📍 暂无地点";
-        const timeText = isOpened ? `最后查看: ${formatTime(item.lastOpenedAt)}` : `发送于: ${formatTime(item.createdAt)}`;
+        let statusBadge = "";
+        let locationText = "";
+        let timeText = "";
+
+        if (isClientOpened) {
+          statusBadge = `<span class="badge opened">客户已读 ${item.clientOpenCount} 次</span>`;
+          locationText = item.lastClientLocation ? `📍 ${item.lastClientLocation}` : "📍 海外地区";
+          timeText = `客户最后查看: ${formatTime(item.lastClientOpenedAt)}`;
+        } else if (isSelfOnly) {
+          statusBadge = `<span class="badge self-opened">仅本机自测</span>`;
+          locationText = item.lastSelfLocation ? `📍 ${item.lastSelfLocation}` : "📍 暂无地点";
+          timeText = `本机自测于: ${formatTime(item.lastSelfOpenedAt)}`;
+        } else {
+          statusBadge = `<span class="badge unopened">未读</span>`;
+          locationText = "📍 暂无地点";
+          timeText = `发送于: ${formatTime(item.createdAt)}`;
+        }
 
         return `
           <div class="record-item">
