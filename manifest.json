@@ -5,7 +5,8 @@
   "description": "专为网易、阿里等外贸企业邮箱定制的邮件已读追踪插件，实时记录收件人查看次数、打开时间、地理位置与设备信息。",
   "permissions": [
     "storage",
-    "activeTab"
+    "activeTab",
+    "declarativeNetRequest"
   ],
   "host_permissions": [
     "<all_urls>"

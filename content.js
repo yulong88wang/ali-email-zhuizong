@@ -210,13 +210,43 @@
     });
   }
 
+  // 智能清洗发件人自身查看产生的脏数据
+  function cleanSenderSelfRecords(record) {
+    if (!record) return record;
+    if (!record.history || record.history.length === 0) return record;
+
+    const myUA = (navigator.userAgent || "").trim();
+    // 智能剔除发件人自身在本地浏览器中预览、草稿或已发送箱打开时产生的自读记录
+    const validHistory = record.history.filter((evt) => {
+      if (evt.userAgent && evt.userAgent.trim() === myUA) {
+        return false;
+      }
+      return true;
+    });
+
+    const cleaned = { ...record };
+    cleaned.history = validHistory;
+    cleaned.openCount = validHistory.length;
+
+    if (validHistory.length > 0) {
+      const last = validHistory[validHistory.length - 1];
+      cleaned.lastOpenedAt = last.time;
+      cleaned.lastLocation = `${last.country} ${last.city}`.trim();
+    } else {
+      cleaned.lastOpenedAt = null;
+      cleaned.lastLocation = "";
+    }
+
+    return cleaned;
+  }
+
   async function updateRecords() {
     try {
       const serverUrl = await getServerUrl();
       const res = await fetch(`${serverUrl}/api/records`);
       const data = await res.json();
       if (data && data.records) {
-        cachedRecords = data.records;
+        cachedRecords = data.records.map(cleanSenderSelfRecords);
         renderBadges();
       }
     } catch (e) {}

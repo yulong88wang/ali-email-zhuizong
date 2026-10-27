@@ -55,6 +55,34 @@ document.addEventListener("DOMContentLoaded", async () => {
     return `${m}-${d} ${h}:${min}`;
   }
 
+  function cleanSenderSelfRecords(record) {
+    if (!record) return record;
+    if (!record.history || record.history.length === 0) return record;
+
+    const myUA = (navigator.userAgent || "").trim();
+    const validHistory = record.history.filter((evt) => {
+      if (evt.userAgent && evt.userAgent.trim() === myUA) {
+        return false;
+      }
+      return true;
+    });
+
+    const cleaned = { ...record };
+    cleaned.history = validHistory;
+    cleaned.openCount = validHistory.length;
+
+    if (validHistory.length > 0) {
+      const last = validHistory[validHistory.length - 1];
+      cleaned.lastOpenedAt = last.time;
+      cleaned.lastLocation = `${last.country} ${last.city}`.trim();
+    } else {
+      cleaned.lastOpenedAt = null;
+      cleaned.lastLocation = "";
+    }
+
+    return cleaned;
+  }
+
   // 加载数据
   async function loadRecords(baseUrl) {
     if (!baseUrl) {
@@ -72,7 +100,8 @@ document.addEventListener("DOMContentLoaded", async () => {
     try {
       const res = await fetch(`${baseUrl}/api/records`);
       const data = await res.json();
-      const records = data.records || [];
+      const rawRecords = data.records || [];
+      const records = rawRecords.map(cleanSenderSelfRecords);
 
       // 更新汇总卡片
       const totalSent = records.length;
