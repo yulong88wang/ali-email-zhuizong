@@ -64,7 +64,7 @@
     const h = String(d.getHours()).padStart(2, "0");
     const m = String(d.getMinutes()).padStart(2, "0");
     const s = String(d.getSeconds()).padStart(2, "0");
-    return `${Y}-${M}-${D}   ${h}:${m}:${s}`;
+    return `${Y}-${M}-${D} ${h}:${m}:${s}`;
   }
 
   function formatShortTime(isoStr) {
@@ -250,9 +250,11 @@
               lastLocText = formatLocation(parts[0], parts[1]);
             }
 
-            const shortTime = formatShortTime(rec.lastOpenedAt);
+            const fullTime = formatFullDateTime(rec.lastOpenedAt);
+            const locPart = lastLocText ? ` · ${lastLocText}` : "";
+            const timePart = fullTime ? ` · ${fullTime}` : "";
             const badgeText = isOpened
-              ? `✓✓ 已读 ${rec.openCount}次 · ${lastLocText} · ${shortTime}`
+              ? `✓✓ 已读 ${rec.openCount}次${locPart}${timePart}`
               : `✓ 未读`;
 
             if (!badge) {
@@ -317,9 +319,11 @@
             lastLocText = formatLocation(parts[0], parts[1]);
           }
 
-          const shortTime = formatShortTime(rec.lastOpenedAt);
+          const fullTime = formatFullDateTime(rec.lastOpenedAt);
+          const locPart = lastLocText ? ` · ${lastLocText}` : "";
+          const timePart = fullTime ? ` · ${fullTime}` : "";
           const badgeText = isOpened
-            ? `✓✓ 已读 ${rec.openCount}次 · ${lastLocText} · ${shortTime}`
+            ? `✓✓ 已读 ${rec.openCount}次${locPart}${timePart}`
             : `✓ 未读`;
 
           if (!badge) {

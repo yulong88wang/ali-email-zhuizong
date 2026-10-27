@@ -35,7 +35,16 @@ export default {
       const trackId = url.searchParams.get("id");
       const recipient = url.searchParams.get("to") || "unknown";
 
-      if (trackId) {
+      // 智能识别与过滤：发件人在自己网页端（阿里邮箱、网易邮箱等）撰写、预览或查看“已发送”列表时产生的自读请求
+      const referer = (request.headers.get("referer") || "").toLowerCase();
+      const isSenderSelfOpen = (
+        referer.includes("aliyun.com") ||
+        referer.includes("163.com") ||
+        referer.includes("126.com") ||
+        referer.includes("yeah.net")
+      );
+
+      if (trackId && !isSenderSelfOpen) {
         // 获取收件人的环境信息
         const ip = request.headers.get("cf-connecting-ip") || "Unknown IP";
         const userAgent = request.headers.get("user-agent") || "Unknown Device";
