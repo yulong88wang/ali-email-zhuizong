@@ -115,6 +115,16 @@ export default {
                 await env.TRACKING_KV.put(trackId, JSON.stringify(item), { expirationTtl: 60 * 60 * 24 * 90 }); // 保留90天
               } catch (e) {}
 
+              // 同时更新聚合汇总缓存，供 GET /api/records 单次极速读取，消耗仅 1 次 KV.get
+              try {
+                let summaryRaw = await env.TRACKING_KV.get("__all_records_summary__");
+                let summaryList = summaryRaw ? JSON.parse(summaryRaw) : [];
+                summaryList = summaryList.filter(x => x.id !== trackId);
+                summaryList.unshift(item);
+                if (summaryList.length > 100) summaryList = summaryList.slice(0, 100);
+                await env.TRACKING_KV.put("__all_records_summary__", JSON.stringify(summaryList), { expirationTtl: 60 * 60 * 24 * 90 });
+              } catch (e) {}
+
               // 同时更新全部邮件索引列表
               try {
                 let indexRaw = await env.TRACKING_KV.get("__index__");
@@ -163,6 +173,15 @@ export default {
           } catch (e) {}
 
           try {
+            let summaryRaw = await env.TRACKING_KV.get("__all_records_summary__");
+            let summaryList = summaryRaw ? JSON.parse(summaryRaw) : [];
+            summaryList = summaryList.filter(x => x.id !== id);
+            summaryList.unshift(item);
+            if (summaryList.length > 100) summaryList = summaryList.slice(0, 100);
+            await env.TRACKING_KV.put("__all_records_summary__", JSON.stringify(summaryList), { expirationTtl: 60 * 60 * 24 * 90 });
+          } catch (e) {}
+
+          try {
             let indexRaw = await env.TRACKING_KV.get("__index__");
             let indexList = indexRaw ? JSON.parse(indexRaw) : [];
             if (!indexList.includes(id)) {
@@ -191,42 +210,59 @@ export default {
         });
       }
 
+      // 1. 优先从 Cloudflare Edge Cache API 获取 (60 秒边缘缓存，零消耗 KV)
+      const cacheKey = new Request(url.toString(), request);
+      const cache = caches.default;
       try {
-        let indexRaw = null;
+        const cachedResp = await cache.match(cacheKey);
+        if (cachedResp) return cachedResp;
+      } catch (cErr) {}
+
+      // 2. 边缘缓存未命中时，仅读 1 次聚合汇总键！彻底杜绝多次循环读取耗尽配额
+      let records = [];
+      try {
+        let summaryRaw = null;
         try {
-          indexRaw = await env.TRACKING_KV.get("__index__");
-        } catch (kvGetErr) {
-          return new Response(JSON.stringify({ error: "KV daily quota reached, falling back to local cache", records: [] }), {
-            headers: { "Content-Type": "application/json", ...corsHeaders }
-          });
-        }
+          summaryRaw = await env.TRACKING_KV.get("__all_records_summary__");
+        } catch (e) {}
 
-        const indexList = indexRaw ? JSON.parse(indexRaw) : [];
-        const records = [];
-
-        // 严格限制单次拉取数量不超过 35 条，杜绝触发 Cloudflare 免费版 50 次子请求上限与日限额超标
-        const fetchList = indexList.slice(0, 35);
-
-        for (const id of fetchList) {
-          try {
-            const itemRaw = await env.TRACKING_KV.get(id);
-            if (itemRaw) {
-              records.push(JSON.parse(itemRaw));
-            }
-          } catch (itemErr) {
-            // 单条读取异常或达到配额时平滑降级，返回已有数据
-            break;
+        if (summaryRaw) {
+          records = JSON.parse(summaryRaw);
+        } else {
+          // 兼容初次迁移/旧版回退：从 __index__ 中拉取
+          let indexRaw = await env.TRACKING_KV.get("__index__");
+          const indexList = indexRaw ? JSON.parse(indexRaw) : [];
+          for (const id of indexList.slice(0, 30)) {
+            try {
+              const itemRaw = await env.TRACKING_KV.get(id);
+              if (itemRaw) records.push(JSON.parse(itemRaw));
+            } catch (itemErr) { break; }
+          }
+          if (records.length > 0) {
+            try {
+              await env.TRACKING_KV.put("__all_records_summary__", JSON.stringify(records), { expirationTtl: 60 * 60 * 24 * 90 });
+            } catch (e) {}
           }
         }
-
-        return new Response(JSON.stringify({ records }), {
-          headers: { "Content-Type": "application/json", ...corsHeaders }
-        });
       } catch (err) {
         return new Response(JSON.stringify({ error: err.message, records: [] }), {
           headers: { "Content-Type": "application/json", ...corsHeaders }
         });
       }
+
+      const response = new Response(JSON.stringify({ records }), {
+        headers: {
+          "Content-Type": "application/json",
+          "Cache-Control": "public, max-age=60",
+          ...corsHeaders
+        }
+      });
+
+      try {
+        ctx.waitUntil(cache.put(cacheKey, response.clone()));
+      } catch (cErr) {}
+
+      return response;
     }
 
     // 默认测试主页
