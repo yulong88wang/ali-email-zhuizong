@@ -169,9 +169,21 @@ document.addEventListener("DOMContentLoaded", async () => {
     recordsList.innerHTML = `<div class="empty-state"><span>正在同步数据...</span></div>`;
 
     try {
-      const res = await fetch(`${baseUrl}/api/records`);
-      const data = await res.json();
-      const rawRecords = data.records || [];
+      let rawRecords = [];
+      try {
+        const res = await fetch(`${baseUrl}/api/records`);
+        if (res.ok) {
+          const data = await res.json();
+          rawRecords = data.records || [];
+          if (rawRecords.length > 0 && typeof chrome !== "undefined" && chrome.storage?.local) {
+            chrome.storage.local.set({ email_tracker_cached_records: rawRecords });
+          }
+        }
+      } catch (netErr) {}
+
+      if (rawRecords.length === 0) {
+        rawRecords = (typeof window !== "undefined" && window.__EMAIL_TRACKER_SEED_RECORDS__) || [];
+      }
       const records = rawRecords.filter(isValidRecipientRecord).map(processRecord);
 
       // 更新汇总卡片：以真实客户打开为准

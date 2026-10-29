@@ -177,20 +177,34 @@ export default {
         });
       }
 
-      const indexRaw = await env.TRACKING_KV.get("__index__");
-      const indexList = indexRaw ? JSON.parse(indexRaw) : [];
-      const records = [];
+      try {
+        const indexRaw = await env.TRACKING_KV.get("__index__");
+        const indexList = indexRaw ? JSON.parse(indexRaw) : [];
+        const records = [];
 
-      for (const id of indexList) {
-        const itemRaw = await env.TRACKING_KV.get(id);
-        if (itemRaw) {
-          records.push(JSON.parse(itemRaw));
+        // 严格限制单次拉取数量不超过 35 条，杜绝触发 Cloudflare 免费版 50 次子请求上限与日限额超标
+        const fetchList = indexList.slice(0, 35);
+
+        for (const id of fetchList) {
+          try {
+            const itemRaw = await env.TRACKING_KV.get(id);
+            if (itemRaw) {
+              records.push(JSON.parse(itemRaw));
+            }
+          } catch (itemErr) {
+            // 单条读取异常或达到配额时平滑降级，返回已有数据
+            break;
+          }
         }
-      }
 
-      return new Response(JSON.stringify({ records }), {
-        headers: { "Content-Type": "application/json", ...corsHeaders }
-      });
+        return new Response(JSON.stringify({ records }), {
+          headers: { "Content-Type": "application/json", ...corsHeaders }
+        });
+      } catch (err) {
+        return new Response(JSON.stringify({ error: err.message, records: [] }), {
+          headers: { "Content-Type": "application/json", ...corsHeaders }
+        });
+      }
     }
 
     // 默认测试主页

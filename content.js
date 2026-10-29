@@ -388,16 +388,45 @@
     }
   }
 
+  function initSeedData() {
+    try {
+      const rawSeed = (typeof window !== "undefined" && window.__EMAIL_TRACKER_SEED_RECORDS__) || [];
+      if (rawSeed.length > 0) {
+        cachedRecords = rawSeed.map(processRecord);
+        renderBadges();
+      }
+      if (typeof chrome !== "undefined" && chrome.storage?.local) {
+        chrome.storage.local.get(["email_tracker_cached_records"], (res) => {
+          if (res && res.email_tracker_cached_records && res.email_tracker_cached_records.length > 0) {
+            cachedRecords = res.email_tracker_cached_records.map(processRecord);
+            renderBadges();
+          }
+        });
+      }
+    } catch (e) {}
+  }
+
   async function updateRecords() {
     try {
       const serverUrl = await getServerUrl();
       const res = await fetch(`${serverUrl}/api/records`);
+      if (!res.ok) {
+        console.warn("[EmailTracker] 云端同步响应状态:", res.status, "- 自动维持本地高可用快照");
+        return;
+      }
       const data = await res.json();
-      if (data && data.records) {
+      if (data && data.records && Array.isArray(data.records) && data.records.length > 0) {
         cachedRecords = data.records.map(processRecord);
         renderBadges();
+        try {
+          if (typeof chrome !== "undefined" && chrome.storage?.local) {
+            chrome.storage.local.set({ email_tracker_cached_records: data.records });
+          }
+        } catch (e) {}
       }
-    } catch (e) {}
+    } catch (e) {
+      console.warn("[EmailTracker] 云端网络波动，维持本地快照:", e.message);
+    }
   }
 
   // 过滤掉发件人自身的内部测试记录，防止误匹配
@@ -828,7 +857,22 @@
     if (!document.getElementById("netease-tracker-bar")) createTrackerWidget();
   }, 4000);
 
+  // 初始化：立即从离线种子数据与本地持久化快照渲染，绝不让标签出现白板
+  initSeedData();
   updateRecords();
-  setInterval(updateRecords, 3000);
+  setInterval(updateRecords, 60000); // 60秒同步一次云端，彻底保护 Cloudflare KV 免费额度，避免消耗超标
+
+  // 页面滚动或邮件列表变动时，实时自动渲染（无需重复请求网络）
+  let renderDebounceTimer = null;
+  function triggerRender() {
+    if (renderDebounceTimer) clearTimeout(renderDebounceTimer);
+    renderDebounceTimer = setTimeout(renderBadges, 200);
+  }
+
+  window.addEventListener("scroll", triggerRender, { passive: true });
+  try {
+    const domObserver = new MutationObserver(() => triggerRender());
+    domObserver.observe(document.body, { childList: true, subtree: true });
+  } catch (e) {}
 
 })();
