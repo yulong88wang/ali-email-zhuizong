@@ -57,26 +57,44 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   function classifyHistoryItem(item) {
     const myUA = (navigator.userAgent || "").trim();
-    const isSelf = !!(item.userAgent && item.userAgent.trim() === myUA);
+    const rawUA = (item.userAgent || "").trim();
+
+    // 1. 识别云端自动化安全网关/扫描爬虫（特征：极简 Mozilla/5.0、无操作系统和内核信息的非真实浏览器请求）
+    const isBot = (
+      rawUA === "Mozilla/5.0" ||
+      rawUA === "" ||
+      rawUA === "Unknown Device" ||
+      (rawUA.startsWith("Mozilla/") && rawUA.length <= 15) ||
+      rawUA.toLowerCase().includes("spider") ||
+      rawUA.toLowerCase().includes("bot") ||
+      rawUA.toLowerCase().includes("crawler")
+    );
+
+    // 2. 识别发件人本机/发信时产生的自测自读（特征：匹配发件人浏览器UA，或日本/国内出口节点下的发件人环境）
+    const isSenderSelf = !isBot && !!(rawUA && (rawUA === myUA || (rawUA.includes("Macintosh; Intel Mac OS X") && item.country === "JP")));
+
+    const isSelf = isBot || isSenderSelf;
 
     let envNote = "";
-    if (item.userAgent) {
-      if (item.userAgent.includes("GoogleImageProxy") || item.ip === "66.249.84.198" || item.ip === "66.249.84.199") {
+    if (isBot) {
+      envNote = "系统安全预检";
+    } else if (rawUA) {
+      if (rawUA.includes("GoogleImageProxy") || item.ip === "66.249.84.198" || item.ip === "66.249.84.199") {
         envNote = "Google邮箱代理";
-      } else if (item.ip === "48.209.223.68" || item.userAgent.includes("Chrome/109")) {
+      } else if (item.ip === "48.209.223.68" || rawUA.includes("Chrome/109")) {
         envNote = "微软企业网关预读";
-      } else if (item.userAgent.includes("Foxmail")) {
+      } else if (rawUA.includes("Foxmail")) {
         envNote = "Foxmail客户端";
-      } else if (item.userAgent.includes("Outlook")) {
+      } else if (rawUA.includes("Outlook")) {
         envNote = "Outlook客户端";
-      } else if (item.userAgent.includes("iPhone") || item.userAgent.includes("iPad")) {
+      } else if (rawUA.includes("iPhone") || rawUA.includes("iPad")) {
         envNote = "iOS移动端";
-      } else if (item.userAgent.includes("Android")) {
+      } else if (rawUA.includes("Android")) {
         envNote = "Android移动端";
       }
     }
 
-    return { ...item, isSelf, envNote };
+    return { ...item, isSelf, isBot, isSenderSelf, envNote };
   }
 
   function processRecord(rec) {
@@ -86,9 +104,13 @@ document.addEventListener("DOMContentLoaded", async () => {
 
     const clientHistory = classifiedHistory.filter((h) => !h.isSelf);
     const selfHistory = classifiedHistory.filter((h) => h.isSelf);
+    const senderSelfHistory = classifiedHistory.filter((h) => h.isSenderSelf);
+    const botHistory = classifiedHistory.filter((h) => h.isBot);
 
     const clientOpenCount = clientHistory.length;
     const selfOpenCount = selfHistory.length;
+    const senderSelfCount = senderSelfHistory.length;
+    const botCount = botHistory.length;
 
     let lastClientOpenedAt = null;
     let lastClientLocation = "";
@@ -98,12 +120,12 @@ document.addEventListener("DOMContentLoaded", async () => {
       lastClientLocation = `${last.country} ${last.city}`.trim();
     }
 
-    let lastSelfOpenedAt = null;
-    let lastSelfLocation = "";
-    if (selfHistory.length > 0) {
-      const last = selfHistory[selfHistory.length - 1];
-      lastSelfOpenedAt = last.time;
-      lastSelfLocation = `${last.country} ${last.city}`.trim();
+    let lastSenderSelfOpenedAt = null;
+    let lastSenderSelfLocation = "";
+    if (senderSelfHistory.length > 0) {
+      const last = senderSelfHistory[senderSelfHistory.length - 1];
+      lastSenderSelfOpenedAt = last.time;
+      lastSenderSelfLocation = `${last.country} ${last.city}`.trim();
     }
 
     return {
@@ -111,12 +133,16 @@ document.addEventListener("DOMContentLoaded", async () => {
       history: classifiedHistory,
       clientHistory,
       selfHistory,
+      senderSelfHistory,
+      botHistory,
       clientOpenCount,
       selfOpenCount,
+      senderSelfCount,
+      botCount,
       lastClientOpenedAt,
       lastClientLocation,
-      lastSelfOpenedAt,
-      lastSelfLocation
+      lastSenderSelfOpenedAt,
+      lastSenderSelfLocation
     };
   }
 
@@ -170,7 +196,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       // 渲染列表
       recordsList.innerHTML = records.map(item => {
         const isClientOpened = (item.clientOpenCount || 0) > 0;
-        const isSelfOnly = !isClientOpened && (item.selfOpenCount || 0) > 0;
+        const isSenderSelfOpened = !isClientOpened && (item.senderSelfCount || 0) > 0;
 
         let statusBadge = "";
         let locationText = "";
@@ -180,10 +206,10 @@ document.addEventListener("DOMContentLoaded", async () => {
           statusBadge = `<span class="badge opened">客户已读 ${item.clientOpenCount} 次</span>`;
           locationText = item.lastClientLocation ? `📍 ${item.lastClientLocation}` : "📍 海外地区";
           timeText = `客户最后查看: ${formatTime(item.lastClientOpenedAt)}`;
-        } else if (isSelfOnly) {
-          statusBadge = `<span class="badge self-opened">仅本机自测</span>`;
-          locationText = item.lastSelfLocation ? `📍 ${item.lastSelfLocation}` : "📍 暂无地点";
-          timeText = `本机自测于: ${formatTime(item.lastSelfOpenedAt)}`;
+        } else if (isSenderSelfOpened) {
+          statusBadge = `<span class="badge self-opened">发件人自查</span>`;
+          locationText = item.lastSenderSelfLocation ? `📍 ${item.lastSenderSelfLocation}` : "📍 暂无地点";
+          timeText = `自查于: ${formatTime(item.lastSenderSelfOpenedAt)}`;
         } else {
           statusBadge = `<span class="badge unopened">未读</span>`;
           locationText = "📍 暂无地点";

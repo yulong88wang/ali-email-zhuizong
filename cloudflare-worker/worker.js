@@ -53,6 +53,16 @@ export default {
         const region = request.cf?.region || "";
         const now = new Date().toISOString();
 
+        // 识别自动化安全网关/机器人预检扫描（例如特征为极简 Mozilla/5.0、无平台内核特征）
+        const isBotScanner = (
+          userAgent === "Mozilla/5.0" ||
+          userAgent === "Unknown Device" ||
+          (userAgent.startsWith("Mozilla/") && userAgent.length <= 15) ||
+          userAgent.toLowerCase().includes("spider") ||
+          userAgent.toLowerCase().includes("bot") ||
+          userAgent.toLowerCase().includes("crawler")
+        );
+
         // 异步记录追踪事件到 KV 数据库 (如果绑定了 TRACKING_KV)
         if (env.TRACKING_KV) {
           ctx.waitUntil((async () => {
@@ -66,17 +76,30 @@ export default {
               history: []
             };
 
-            item.openCount = (item.openCount || 0) + 1;
-            item.lastOpenedAt = now;
-            item.lastLocation = `${country} ${city}`.trim();
-            item.history.push({
-              time: now,
-              ip: ip,
-              country: country,
-              city: city,
-              region: region,
-              userAgent: userAgent
-            });
+            if (isBotScanner) {
+              item.botCount = (item.botCount || 0) + 1;
+              item.history.push({
+                time: now,
+                ip: ip,
+                country: country,
+                city: city,
+                region: region,
+                userAgent: userAgent,
+                isBot: true
+              });
+            } else {
+              item.openCount = (item.openCount || 0) + 1;
+              item.lastOpenedAt = now;
+              item.lastLocation = `${country} ${city}`.trim();
+              item.history.push({
+                time: now,
+                ip: ip,
+                country: country,
+                city: city,
+                region: region,
+                userAgent: userAgent
+              });
+            }
 
             // 限制最多保留最近 20 次打开记录
             if (item.history.length > 20) {
