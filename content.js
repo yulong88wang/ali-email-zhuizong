@@ -138,23 +138,18 @@
     }
     historyList.reverse();
 
+    // 严格过滤系统安全扫描网关/机器人爬虫，绝不呈现在用户轨迹明细中
+    const validHistory = historyList.filter((item) => !item.isBot);
+
     // 客户有效阅读的编号计算（从 clientOpenCount 倒序递减）
     let clientSeq = rec.clientOpenCount || 0;
 
-    let rowsHtml = historyList.map((item) => {
+    let rowsHtml = validHistory.map((item) => {
       const locStr = formatLocation(item.country, item.city);
       const timeStr = formatFullDateTime(item.time);
       const envBadge = item.envNote ? `<span class="nt-env-tag">${item.envNote}</span>` : "";
 
-      if (item.isBot) {
-        return `
-          <tr class="nt-row-bot" style="opacity: 0.75; background: #f8fafc;">
-            <td class="nt-col-count"><span class="nt-tag-bot" style="display:inline-block;padding:2px 6px;border-radius:4px;font-size:11px;background:#e2e8f0;color:#475569;font-weight:600;">系统安全预检</span></td>
-            <td class="nt-col-location">在 ${locStr} 自动化扫描 <span class="nt-env-tag" style="font-size:11px;color:#94a3b8;">${item.userAgent || "Bot"}</span></td>
-            <td class="nt-col-time">${timeStr}</td>
-          </tr>
-        `;
-      } else if (item.isSenderSelf || item.isSelf) {
+      if (item.isSenderSelf || item.isSelf) {
         return `
           <tr class="nt-row-self">
             <td class="nt-col-count"><span class="nt-tag-self">发件人自查</span></td>
@@ -174,18 +169,24 @@
       }
     }).join("");
 
+    if (!rowsHtml) {
+      rowsHtml = `
+        <tr>
+          <td colspan="3" style="text-align:center;color:#94a3b8;padding:22px 10px;font-size:13px;">
+            ✓ 邮件已成功发出，等待客户打开中...
+          </td>
+        </tr>
+      `;
+    }
+
     let summaryText = "";
     if (rec.clientOpenCount > 0) {
       summaryText = `客户有效已读 ${rec.clientOpenCount} 次`;
       if (rec.senderSelfCount > 0) summaryText += ` · 本机自查 ${rec.senderSelfCount} 次`;
-      if (rec.botCount > 0) summaryText += ` · 系统预检 ${rec.botCount} 次`;
     } else if (rec.senderSelfCount > 0) {
       summaryText = `客户未读 (本机自查 ${rec.senderSelfCount} 次)`;
-      if (rec.botCount > 0) summaryText += ` · 系统预检 ${rec.botCount} 次`;
-    } else if (rec.botCount > 0) {
-      summaryText = `客户未读 (系统安全预检 ${rec.botCount} 次)`;
     } else {
-      summaryText = `暂无记录`;
+      summaryText = `客户未读`;
     }
 
     popover.innerHTML = `
@@ -486,9 +487,71 @@
             };
           }
         } else {
-          // 该邮件未被匹配（或未开启追踪），如果以前被错误添加过徽标，立即清除
-          if (badge) {
-            badge.remove();
+          // 该邮件未在云端检测到有效追踪记录（发信时未植入追踪码或快捷键发信）
+          const badgeClass = "nt-inline-tag not-tracked";
+          const badgeText = "— 未开启追踪";
+
+          const showUntrackedPopover = () => {
+            if (hidePopoverTimer) clearTimeout(hidePopoverTimer);
+            const popover = ensureHoverPopover();
+            popover.innerHTML = `
+              <div class="nt-popover-header">
+                <span>⚠️ 邮件追踪状态说明 (未开启追踪)</span>
+                <button class="nt-popover-close-btn" title="关闭">×</button>
+              </div>
+              <div style="font-size:12px;color:#cbd5e1;line-height:1.7;padding:10px 4px;">
+                <p style="margin:0 0 8px 0;font-weight:600;color:#f87171;">该邮件发信时未在云端检测到有效追踪记录。</p>
+                <p style="margin:0 0 6px 0;color:#94a3b8;">常见原因：</p>
+                <ul style="margin:0 0 8px 18px;padding:0;color:#94a3b8;font-size:11px;">
+                  <li>发信时未开启追踪功能或未成功植入隐形像素；</li>
+                  <li>发信时使用了键盘快捷键（Ctrl/Cmd + Enter）直接绕过了按钮点击；</li>
+                  <li>通过手机端、Foxmail 等第三方客户端发送。</li>
+                </ul>
+                <p style="margin:0;color:#38bdf8;font-size:11px;">💡 提示：若收件人后续打开且邮件正文确实包含追踪像素，系统将自动补录并激活已读状态。</p>
+              </div>
+            `;
+            const closeBtn = popover.querySelector(".nt-popover-close-btn");
+            if (closeBtn) {
+              closeBtn.onclick = () => {
+                isPinned = false;
+                popover.style.display = "none";
+              };
+            }
+            const rect = badge.getBoundingClientRect();
+            popover.style.top = `${rect.bottom + 4}px`;
+            popover.style.left = `${Math.max(10, Math.min(window.innerWidth - 580, rect.left))}px`;
+            popover.style.display = "block";
+          };
+
+          if (!badge) {
+            badge = document.createElement("span");
+            badge.className = badgeClass;
+            badge.innerText = badgeText;
+            badge.title = "发信时未开启追踪功能";
+            badge.addEventListener("mouseenter", showUntrackedPopover);
+            badge.addEventListener("mouseleave", scheduleHidePopover);
+            badge.addEventListener("click", (e) => {
+              e.stopPropagation();
+              isPinned = true;
+              showUntrackedPopover();
+            });
+
+            if (subjectCol.firstChild) {
+              subjectCol.insertBefore(badge, subjectCol.firstChild);
+            } else {
+              subjectCol.appendChild(badge);
+            }
+          } else {
+            badge.className = badgeClass;
+            badge.innerText = badgeText;
+            badge.title = "发信时未开启追踪功能";
+            badge.onmouseenter = showUntrackedPopover;
+            badge.onmouseleave = scheduleHidePopover;
+            badge.onclick = (e) => {
+              e.stopPropagation();
+              isPinned = true;
+              showUntrackedPopover();
+            };
           }
         }
       });
@@ -674,26 +737,91 @@
       bar.style.display = "none";
     });
 
+    let currentDraftTrackId = null;
+
+    // 智能提前植入：在写信界面聚焦或输入时提前准备好追踪码，避免点击发送瞬间的异步竞争
+    async function autoPrepareTracking() {
+      if (!isTrackingEnabled) return;
+      const editor = findEditorElement();
+      if (!editor || !editor.element) return;
+      if (editor.element.innerHTML.includes("/pixel?id=")) return;
+
+      const serverUrl = await getServerUrl();
+      if (!currentDraftTrackId) {
+        currentDraftTrackId = generateTrackId();
+      }
+      await injectTrackingPixel(currentDraftTrackId, serverUrl);
+    }
+
+    // 监听写信编辑器聚焦与输入，提前植入追踪像素
+    document.addEventListener("focusin", (e) => {
+      const t = e.target;
+      if (t && (t.isContentEditable || t.tagName === "IFRAME" || t.closest?.('[contenteditable="true"]'))) {
+        setTimeout(autoPrepareTracking, 1500);
+      }
+    }, true);
+
+    // 监听键盘快捷键发信（Ctrl+Enter 或 Cmd+Enter）
+    document.addEventListener("keydown", async (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+        if (isTrackingEnabled) {
+          const serverUrl = await getServerUrl();
+          const trackId = currentDraftTrackId || generateTrackId();
+          await injectTrackingPixel(trackId, serverUrl);
+          currentDraftTrackId = null;
+        }
+      }
+    }, true);
+
     document.addEventListener("click", async (e) => {
       const target = e.target;
       if (!target) return;
-      const btnText = (target.innerText || target.textContent || "").trim();
-      const ariaLabel = target.getAttribute("aria-label") || "";
+      const sendBtn = target.closest('button, [role="button"], .nui-mainBtn, .btn-send, [data-action="send"], .btn, div[class*="send"]');
+      const btnText = (sendBtn ? (sendBtn.innerText || sendBtn.textContent || "") : (target.innerText || target.textContent || "")).trim();
+      const ariaLabel = (sendBtn ? sendBtn.getAttribute("aria-label") : target.getAttribute("aria-label")) || "";
       const isSendButton = (
-        btnText === "发送" || btnText.includes("发送") || ariaLabel.includes("发送") ||
+        btnText === "发送" || btnText.startsWith("发送") || ariaLabel.includes("发送") ||
         target.classList?.contains("nui-mainBtn") || target.classList?.contains("btn-send") ||
-        target.closest(".nui-mainBtn") || target.closest(".btn-send") || target.closest('[data-action="send"]')
+        (sendBtn && (sendBtn.classList?.contains("nui-mainBtn") || sendBtn.classList?.contains("btn-send") || sendBtn.getAttribute("data-action") === "send"))
       );
 
       if (isSendButton && isTrackingEnabled) {
         const serverUrl = await getServerUrl();
-        const trackId = generateTrackId();
+        const trackId = currentDraftTrackId || generateTrackId();
         await injectTrackingPixel(trackId, serverUrl);
+        currentDraftTrackId = null;
       }
     }, true);
   }
 
-  // ==================== 4. 定时调度 ====================
+  // ==================== 4. 定时调度与打开邮件自动补录 ====================
+
+  // 自动检测已打开邮件中的追踪像素，若未在云端登记则自动补录
+  setInterval(async () => {
+    try {
+      const pixelImgs = document.querySelectorAll('img[src*="/pixel?id="]');
+      for (const img of pixelImgs) {
+        const src = img.getAttribute("src") || "";
+        const match = src.match(/id=([^&]+)/);
+        if (match && match[1]) {
+          const trackId = decodeURIComponent(match[1]);
+          if (!cachedRecords.find(r => r.id === trackId)) {
+            const toMatch = src.match(/to=([^&]+)/);
+            const subMatch = src.match(/sub=([^&]+)/);
+            const to = toMatch ? decodeURIComponent(toMatch[1]) : "";
+            const sub = subMatch ? decodeURIComponent(subMatch[1]) : "";
+            const serverUrl = await getServerUrl();
+            await fetch(`${serverUrl}/api/register`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ id: trackId, to, subject: sub })
+            });
+            updateRecords();
+          }
+        }
+      }
+    } catch (e) {}
+  }, 4000);
 
   setTimeout(createTrackerWidget, 2000);
   setInterval(() => {

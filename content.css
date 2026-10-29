@@ -125,6 +125,19 @@
   color: #ffffff !important;
 }
 
+.nt-inline-tag.not-tracked {
+  background: #f1f5f9 !important;
+  color: #94a3b8 !important;
+  border: 1px dashed #cbd5e1 !important;
+  box-shadow: none !important;
+}
+
+.nt-inline-tag.not-tracked:hover {
+  background: #e2e8f0 !important;
+  color: #64748b !important;
+  border-color: #94a3b8 !important;
+}
+
 /* 鼠标悬停时的历史轨迹详细浮窗 (自带透明接驳垫，防鼠标滑脱) */
 #nt-hover-popover {
   position: fixed;
