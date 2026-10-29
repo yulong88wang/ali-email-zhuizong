@@ -125,21 +125,16 @@
       const targetTo = (rec && rec.to) ? rec.to : "客户";
       popover.innerHTML = `
         <div class="nt-popover-header">
-          <span>📊 邮件追踪状态明细 (客户未读)</span>
+          <span>📊 邮件阅读明细 (未读)</span>
           <button class="nt-popover-close-btn" title="关闭">×</button>
         </div>
-        <div style="font-size:12px;color:#cbd5e1;line-height:1.7;padding:12px 14px;">
+        <div style="font-size:12px;color:#cbd5e1;line-height:1.8;padding:12px 14px;">
           <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px;">
-            <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#38bdf8;"></span>
-            <span style="font-weight:600;color:#38bdf8;font-size:13px;">✓ 隐形追踪像素已生效</span>
+            <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#9ca3af;"></span>
+            <span style="font-weight:600;color:#e2e8f0;font-size:13px;">未读</span>
           </div>
           <p style="margin:0 0 6px 0;color:#cbd5e1;">收件对象：<strong style="color:#ffffff;">${targetTo}</strong></p>
-          <p style="margin:0 0 8px 0;color:#94a3b8;">当前状态：<span style="color:#fbbf24;font-weight:500;">✓ 邮件已成功发出，等待客户打开中...</span></p>
-          <div style="background:rgba(255,255,255,0.05);border-radius:6px;padding:8px 10px;margin-top:6px;border-left:3px solid #38bdf8;">
-            <p style="margin:0;color:#94a3b8;font-size:11px;line-height:1.6;">
-              💡 <strong>实时监测中</strong>：该邮件已成功挂载专属 1×1 隐形追踪像素。只要客户在邮件客户端加载内容，云端系统将立即记录打开时间、频次、地理位置与设备类型，并将徽标实时自动点亮为绿色已读。
-            </p>
-          </div>
+          <p style="margin:0;color:#94a3b8;">状态：等待客户打开中...</p>
         </div>
       `;
 
@@ -152,7 +147,7 @@
       }
 
       const rect = badge.getBoundingClientRect();
-      const popoverWidth = 460;
+      const popoverWidth = 360;
       let leftPos = rect.left;
       if (leftPos + popoverWidth > window.innerWidth - 20) {
         leftPos = window.innerWidth - popoverWidth - 20;
@@ -494,7 +489,81 @@
     return contactText.toLowerCase().trim();
   }
 
+  // 判断当前页面是否严格处于“已发送”文件夹（绝不在收件箱、草稿箱、垃圾箱等无关文件夹展示追踪状态）
+  function isSentFolder() {
+    const href = (location.href || "").toLowerCase();
+    const pathname = (location.pathname || "").toLowerCase();
+    const hash = (location.hash || "").toLowerCase();
+
+    // 1. 明确排除非“已发送”文件夹（收件箱、草稿箱、垃圾箱、已删除、垃圾邮件、跟进事项、重要邮件等）
+    if (
+      pathname.includes("/inbox") ||
+      href.includes("/inbox") ||
+      href.includes("mbox=inbox") ||
+      pathname.includes("/draft") ||
+      href.includes("/draft") ||
+      pathname.includes("/trash") ||
+      href.includes("/trash") ||
+      pathname.includes("/spam") ||
+      href.includes("/spam") ||
+      pathname.includes("/junk") ||
+      href.includes("/junk") ||
+      href.includes("folder=inbox") ||
+      href.includes("folder=draft") ||
+      href.includes("folder=trash") ||
+      href.includes("folder=spam")
+    ) {
+      return false;
+    }
+
+    // 2. 命中“已发送”相关 URL 特征
+    if (
+      pathname.includes("/sentitems") ||
+      href.includes("/sentitems") ||
+      pathname.includes("/sent") ||
+      href.includes("/sent") ||
+      href.includes("mbox=sent") ||
+      href.includes("folder=sent") ||
+      hash.includes("sent")
+    ) {
+      return true;
+    }
+
+    // 3. 阿里邮箱与网易邮箱 DOM 标题/面包屑精准判定
+    const titleEls = document.querySelectorAll(
+      'h1, h2, h3, [role="heading"], .sc-ediMuL, [class*="folder-title"], [class*="mail-title"], [class*="header-title"]'
+    );
+    for (const el of titleEls) {
+      const t = (el.innerText || "").trim();
+      if (t === "已发送" || t.startsWith("已发送")) return true;
+      if (t === "收件箱" || t.startsWith("收件箱") || t.includes("草稿") || t.includes("垃圾")) return false;
+    }
+
+    // 4. 左侧导航选中的当前菜单项判定
+    const activeNav = document.querySelector(
+      '.sc-fmLzIc[aria-selected="true"], [role="treeitem"][aria-selected="true"], .nui-tree-item-selected, li.active, div.selected'
+    );
+    if (activeNav) {
+      const navText = (activeNav.innerText || "").trim();
+      if (navText.includes("已发送") || navText.includes("send")) return true;
+      if (navText.includes("收件箱") || navText.includes("inbox") || navText.includes("草稿") || navText.includes("垃圾")) return false;
+    }
+
+    return false;
+  }
+
+  function clearAllBadges() {
+    const existingBadges = document.querySelectorAll(".nt-inline-tag");
+    existingBadges.forEach((b) => b.remove());
+  }
+
   function renderBadges() {
+    // 严密限制：仅在“已发送”文件夹中展示追踪数据；若在收件箱、草稿箱、垃圾箱等无关页面，立即彻底清除所有标签
+    if (!isSentFolder()) {
+      clearAllBadges();
+      return;
+    }
+
     if (!cachedRecords || cachedRecords.length === 0) return;
 
     // 1. 标准语义化容器优先 (阿里企业邮箱 div[role="listitem"] / article，永久兼容前端框架重编译)
@@ -853,6 +922,26 @@
   try {
     const domObserver = new MutationObserver(() => triggerRender());
     domObserver.observe(document.body, { childList: true, subtree: true });
+  } catch (e) {}
+
+  // 监听单页应用 (SPA) 路由切换：在切换到收件箱时立即清除标签，切换到已发送时立即重新渲染
+  try {
+    const origPush = history.pushState;
+    if (typeof origPush === "function") {
+      history.pushState = function () {
+        origPush.apply(this, arguments);
+        triggerRender();
+      };
+    }
+    const origReplace = history.replaceState;
+    if (typeof origReplace === "function") {
+      history.replaceState = function () {
+        origReplace.apply(this, arguments);
+        triggerRender();
+      };
+    }
+    window.addEventListener("popstate", triggerRender);
+    window.addEventListener("hashchange", triggerRender);
   } catch (e) {}
 
 })();
