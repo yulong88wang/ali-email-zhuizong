@@ -349,6 +349,34 @@
     } catch (e) {}
   }
 
+  // 过滤掉发件人自身的内部测试记录，防止误匹配
+  function isValidRecipientRecord(rec) {
+    if (!rec || !rec.to) return false;
+    const to = rec.to.toLowerCase().trim();
+    if (to.includes("pansey@kingstarco.com") || to === "pansey") return false;
+    if (rec.id && (rec.id.startsWith("internal_") || rec.id.includes("archive_verify") || rec.id.includes("test_"))) return false;
+    return true;
+  }
+
+  // 严格提取列表行中真实的联系人/收件人列文本（排除 article 主题与邮件正文摘要，防止匹配到正文中的发件人签名如 I'm Pansey）
+  function getRowRecipientText(row) {
+    const article = row.querySelector("article");
+    let contactText = "";
+    if (article) {
+      let curr = article.previousElementSibling;
+      while (curr) {
+        contactText = (curr.innerText || "") + " " + (curr.getAttribute("title") || "") + " " + contactText;
+        curr = curr.previousElementSibling;
+      }
+    } else {
+      const children = Array.from(row.children || []);
+      for (let i = 0; i < Math.min(4, children.length); i++) {
+        contactText += (children[i].innerText || "") + " " + (children[i].getAttribute("title") || "") + " ";
+      }
+    }
+    return contactText.toLowerCase().trim();
+  }
+
   function renderBadges() {
     if (!cachedRecords || cachedRecords.length === 0) return;
 
@@ -356,58 +384,79 @@
     const aliRows = document.querySelectorAll('div[role="listitem"], .sc-iYAFwr, .sc-hbNLnR, div[class*="item"][role="listitem"]');
     if (aliRows.length > 0) {
       aliRows.forEach((row) => {
-        const rowText = row.innerText.toLowerCase();
-        cachedRecords.forEach((rec) => {
-          const username = (rec.to || "").split("@")[0].toLowerCase();
-          if (!username || username.length < 2) return;
+        const contactText = getRowRecipientText(row);
+        if (!contactText) return;
 
-          if (rowText.includes(username)) {
-            // 阿里邮箱中 article 元素代表邮件主题列，空间大、无溢出遮挡
-            const subjectCol = row.querySelector("article") || row.children[4] || row.querySelector('[class*="subject"]') || row;
-            let badge = row.querySelector(".nt-inline-tag");
-            const { badgeClass, badgeText } = getBadgeConfig(rec);
+        // 寻找与当前邮件收件人唯一精准匹配的记录
+        let matchedRec = null;
+        for (const rec of cachedRecords) {
+          if (!isValidRecipientRecord(rec)) continue;
+          const toLower = (rec.to || "").toLowerCase().trim();
+          const username = toLower.split("@")[0];
+          if (!username || username.length < 2) continue;
 
-            if (!badge) {
-              badge = document.createElement("span");
-              badge.className = badgeClass;
-              badge.innerText = badgeText;
-
-              badge.addEventListener("mouseenter", () => showHistoryPopover(badge, rec));
-              badge.addEventListener("mouseleave", scheduleHidePopover);
-              badge.addEventListener("click", (e) => {
-                e.stopPropagation();
-                showHistoryPopover(badge, rec, true); // 点击固定弹窗
-              });
-
-              if (subjectCol.firstChild) {
-                subjectCol.insertBefore(badge, subjectCol.firstChild);
-              } else {
-                subjectCol.appendChild(badge);
-              }
-            } else {
-              badge.className = badgeClass;
-              badge.innerText = badgeText;
-              badge.onmouseenter = () => showHistoryPopover(badge, rec);
-              badge.onmouseleave = scheduleHidePopover;
-              badge.onclick = (e) => {
-                e.stopPropagation();
-                showHistoryPopover(badge, rec, true);
-              };
-            }
+          // 仅在收件人姓名/邮箱列中比对（绝不比对正文）
+          if (contactText.includes(username) || contactText.includes(toLower)) {
+            matchedRec = rec;
+            break; // 找到后立即退出，绝不被后续其他记录覆盖
           }
-        });
+        }
+
+        const subjectCol = row.querySelector("article") || row.children[4] || row.querySelector('[class*="subject"]') || row;
+        let badge = row.querySelector(".nt-inline-tag");
+
+        if (matchedRec) {
+          const { badgeClass, badgeText } = getBadgeConfig(matchedRec);
+
+          if (!badge) {
+            badge = document.createElement("span");
+            badge.className = badgeClass;
+            badge.innerText = badgeText;
+
+            badge.addEventListener("mouseenter", () => showHistoryPopover(badge, matchedRec));
+            badge.addEventListener("mouseleave", scheduleHidePopover);
+            badge.addEventListener("click", (e) => {
+              e.stopPropagation();
+              showHistoryPopover(badge, matchedRec, true); // 点击固定弹窗
+            });
+
+            if (subjectCol.firstChild) {
+              subjectCol.insertBefore(badge, subjectCol.firstChild);
+            } else {
+              subjectCol.appendChild(badge);
+            }
+          } else {
+            badge.className = badgeClass;
+            badge.innerText = badgeText;
+            badge.onmouseenter = () => showHistoryPopover(badge, matchedRec);
+            badge.onmouseleave = scheduleHidePopover;
+            badge.onclick = (e) => {
+              e.stopPropagation();
+              showHistoryPopover(badge, matchedRec, true);
+            };
+          }
+        } else {
+          // 该邮件未被匹配（或未开启追踪），如果以前被错误添加过徽标，立即清除
+          if (badge) {
+            badge.remove();
+          }
+        }
       });
       return;
     }
 
     // 2. 通用/网易企业邮箱及传统表格匹配模式
     cachedRecords.forEach((rec) => {
+      if (!isValidRecipientRecord(rec)) return;
       const username = (rec.to || "").split("@")[0].toLowerCase();
       if (!username || username.length < 2) return;
 
       const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
       let node;
       while ((node = walker.nextNode())) {
+        // 绝不匹配邮件正文/摘要内的文字
+        if (node.parentElement?.closest("article, .mail-body-preview, .subject-snippet")) continue;
+
         const text = (node.nodeValue || "").trim().toLowerCase();
         if (text === username || text.startsWith(username)) {
           const parent = node.parentElement;

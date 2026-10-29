@@ -120,6 +120,14 @@ document.addEventListener("DOMContentLoaded", async () => {
     };
   }
 
+  function isValidRecipientRecord(rec) {
+    if (!rec || !rec.to) return false;
+    const to = rec.to.toLowerCase().trim();
+    if (to.includes("pansey@kingstarco.com") || to === "pansey") return false;
+    if (rec.id && (rec.id.startsWith("internal_") || rec.id.includes("archive_verify") || rec.id.includes("test_"))) return false;
+    return true;
+  }
+
   // 加载数据
   async function loadRecords(baseUrl) {
     if (!baseUrl) {
@@ -138,7 +146,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       const res = await fetch(`${baseUrl}/api/records`);
       const data = await res.json();
       const rawRecords = data.records || [];
-      const records = rawRecords.map(processRecord);
+      const records = rawRecords.filter(isValidRecipientRecord).map(processRecord);
 
       // 更新汇总卡片：以真实客户打开为准
       const totalSent = records.length;
