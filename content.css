@@ -114,6 +114,12 @@
   box-shadow: 0 1px 3px rgba(16, 185, 129, 0.4) !important;
 }
 
+.nt-inline-tag.gateway {
+  background: #0284c7 !important;
+  color: #ffffff !important;
+  box-shadow: 0 1px 3px rgba(2, 132, 199, 0.4) !important;
+}
+
 .nt-inline-tag.self-opened {
   background: #64748b !important;
   color: #f8fafc !important;

@@ -120,8 +120,12 @@
 
     if (pin) isPinned = true;
 
-    const totalActions = (rec?.clientOpenCount || 0) + (rec?.selfOpenCount || 0);
-    if (!rec || totalActions === 0) {
+    const isClientOpened = (rec?.clientOpenCount || 0) > 0;
+    const isGatewayChecked = !isClientOpened && (rec?.gatewayCount || 0) > 0;
+    const isSenderSelfOpened = !isClientOpened && !isGatewayChecked && (rec?.senderSelfCount || 0) > 0;
+
+    // 1. 纯未读状态（尚未发生任何网关扫描或打开）
+    if (!rec || (!isClientOpened && !isGatewayChecked && !isSenderSelfOpened)) {
       const targetTo = (rec && rec.to) ? rec.to : "客户";
       popover.innerHTML = `
         <div class="nt-popover-header">
@@ -158,6 +162,54 @@
       return;
     }
 
+    // 2. 企业网关已预检送达状态 (对标小满 CRM 交付与网关扫描特性)
+    if (isGatewayChecked) {
+      const targetTo = rec.to || "客户";
+      const gwTime = formatFullDateTime(rec.lastGatewayAt);
+      const gwLoc = rec.lastGatewayLocation || "海外节点";
+      const gwNote = rec.lastGatewayNote || "企业安全网关预检";
+
+      popover.innerHTML = `
+        <div class="nt-popover-header">
+          <span>📊 邮件投递与追踪状态 (已送达)</span>
+          <button class="nt-popover-close-btn" title="关闭">×</button>
+        </div>
+        <div style="font-size:12px;color:#cbd5e1;line-height:1.8;padding:12px 14px;">
+          <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px;">
+            <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#0284c7;"></span>
+            <span style="font-weight:600;color:#38bdf8;font-size:13px;">✓ 邮件已成功送达对方收件箱 (网关已扫描)</span>
+          </div>
+          <p style="margin:0 0 6px 0;color:#cbd5e1;">收件对象：<strong style="color:#ffffff;">${targetTo}</strong></p>
+          <p style="margin:0 0 6px 0;color:#cbd5e1;">网关扫描：<span style="color:#38bdf8;font-weight:600;">${gwNote}</span> · ${gwLoc} (${gwTime})</p>
+          <p style="margin:0 0 8px 0;color:#fbbf24;">客户状态：<strong>等待客户本人阅读中...</strong></p>
+          <div style="background:rgba(255,255,255,0.05);border-radius:6px;padding:8px 10px;margin-top:6px;border-left:3px solid #0284c7;">
+            <p style="margin:0;color:#94a3b8;font-size:11px;line-height:1.6;">
+              💡 <strong>对标小满防误判机制</strong>：检测到收件方企业级安全网关（如微软 365 Defender）已对邮件完成安全扫描，证实邮件已成功穿透反垃圾网关并送达。系统已智能排除此机器扫描，不会误计为客户已读，确保跟进节奏精准。
+            </p>
+          </div>
+        </div>
+      `;
+
+      const closeBtn = popover.querySelector(".nt-popover-close-btn");
+      if (closeBtn) {
+        closeBtn.addEventListener("click", () => {
+          isPinned = false;
+          popover.style.display = "none";
+        });
+      }
+
+      const rect = badge.getBoundingClientRect();
+      const popoverWidth = 460;
+      let leftPos = rect.left;
+      if (leftPos + popoverWidth > window.innerWidth - 20) {
+        leftPos = window.innerWidth - popoverWidth - 20;
+      }
+      popover.style.top = `${rect.bottom + 4}px`;
+      popover.style.left = `${Math.max(10, leftPos)}px`;
+      popover.style.display = "block";
+      return;
+    }
+
     const historyList = [...(rec.history || [])];
     if (historyList.length === 0 && rec.lastOpenedAt) {
       const parts = (rec.lastLocation || "").split(" ");
@@ -165,13 +217,14 @@
         time: rec.lastOpenedAt,
         country: parts[0] || "",
         city: parts[1] || "",
-        isSelf: false
+        isSelf: false,
+        isClientReal: true
       });
     }
     historyList.reverse();
 
-    // 严格过滤系统安全扫描网关/机器人爬虫，绝不呈现在用户轨迹明细中
-    const validHistory = historyList.filter((item) => !item.isBot);
+    // 严格过滤系统安全扫描网关/机器人爬虫，明细表中仅呈现实体客户与发件人自查
+    const validHistory = historyList.filter((item) => !item.isGateway);
 
     // 客户有效阅读的编号计算（从 clientOpenCount 倒序递减）
     let clientSeq = rec.clientOpenCount || 0;
@@ -221,6 +274,16 @@
       summaryText = `客户未读`;
     }
 
+    let gatewayFooter = "";
+    if (rec.gatewayCount > 0) {
+      gatewayFooter = `
+        <div style="padding:8px 14px;background:rgba(2,132,199,0.1);border-top:1px solid #1e293b;font-size:11px;color:#94a3b8;display:flex;align-items:center;gap:6px;">
+          <span style="color:#38bdf8;">🛡️ 送达凭据:</span>
+          <span>对方企业安全网关 (${rec.lastGatewayNote}) 于 ${formatFullDateTime(rec.lastGatewayAt)} 已完成扫描通过</span>
+        </div>
+      `;
+    }
+
     popover.innerHTML = `
       <div class="nt-popover-header">
         <span>📊 邮件阅读轨迹明细 (${summaryText})</span>
@@ -233,6 +296,7 @@
           </tbody>
         </table>
       </div>
+      ${gatewayFooter}
     `;
 
     const closeBtn = popover.querySelector(".nt-popover-close-btn");
@@ -280,13 +344,34 @@
     });
   }
 
-  // 智能识别单条查看事件来源（区分客户查看、发件人自查与系统安全预检）
+  // 智能识别单条查看事件来源（区分客户真实阅读、企业网关预检、发件人自查与爬虫）
   function classifyHistoryItem(item) {
     const myUA = (navigator.userAgent || "").trim();
     const rawUA = (item.userAgent || "").trim();
 
-    // 1. 识别云端自动化安全网关/扫描爬虫（特征：极简 Mozilla/5.0、无操作系统和内核信息的非真实浏览器请求）
-    const isBot = (
+    // 1. 识别云端自动化安全网关（如微软 365 Defender / Google 安全代理 / 邮件沙箱）
+    const isMicrosoftGateway = (
+      rawUA.includes("Chrome/109") ||
+      item.ip === "48.209.223.68" ||
+      (item.country === "IE" && item.city === "Dublin" && rawUA.includes("Chrome/109")) ||
+      (item.country === "CH" && item.city === "Zürich" && rawUA.includes("Chrome/109")) ||
+      (item.country === "NL" && item.city === "Amsterdam" && rawUA.includes("Chrome/109")) ||
+      (item.country === "CA" && item.city === "Toronto" && rawUA.includes("Chrome/109"))
+    );
+
+    const isGoogleProxy = (
+      rawUA.includes("GoogleImageProxy") ||
+      rawUA.includes("ggpht.com") ||
+      item.ip === "66.249.84.198" ||
+      item.ip === "66.249.84.199"
+    );
+
+    const isAwsCrawler = (
+      rawUA.includes("Chrome/124.0.0.0") &&
+      (item.city === "Ashburn" || item.region === "Virginia" || (item.ip && item.ip.startsWith("52.203.")))
+    );
+
+    const isBotSpider = (
       rawUA === "Mozilla/5.0" ||
       rawUA === "" ||
       rawUA === "Unknown Device" ||
@@ -296,21 +381,28 @@
       rawUA.toLowerCase().includes("crawler")
     );
 
-    // 2. 识别发件人本机/发信时产生的自测自读（特征：匹配发件人浏览器UA，或日本/国内出口节点下的发件人环境）
-    const isSenderSelf = !isBot && !!(rawUA && (rawUA === myUA || (rawUA.includes("Macintosh; Intel Mac OS X") && item.country === "JP")));
+    const isGateway = isMicrosoftGateway || isGoogleProxy || isAwsCrawler || isBotSpider;
 
-    // 综合判定是否非客户行为（包括机器人预检和本机自查）
-    const isSelf = isBot || isSenderSelf;
+    // 2. 识别发件人本机/发信时产生的自测自读（匹配发件人浏览器UA，或日本/国内出口节点下的发件人测试环境）
+    const isSenderSelf = !isGateway && !!(rawUA && (rawUA === myUA || (rawUA.includes("Macintosh; Intel Mac OS X") && item.country === "JP")));
+
+    // 3. 客户真实阅读（必须既不是网关扫描，也不是发件人自查）
+    const isClientReal = !isGateway && !isSenderSelf;
+
+    // 综合判定是否非真实客户
+    const isSelf = isGateway || isSenderSelf;
 
     let envNote = "";
-    if (isBot) {
+    if (isMicrosoftGateway) {
+      envNote = "微软企业网关预读";
+    } else if (isGoogleProxy) {
+      envNote = "Google邮箱代理预检";
+    } else if (isAwsCrawler) {
+      envNote = "企业云端安全扫描";
+    } else if (isBotSpider) {
       envNote = "系统安全预检";
     } else if (rawUA) {
-      if (rawUA.includes("GoogleImageProxy") || item.ip === "66.249.84.198" || item.ip === "66.249.84.199") {
-        envNote = "Google邮箱代理";
-      } else if (item.ip === "48.209.223.68" || rawUA.includes("Chrome/109")) {
-        envNote = "微软企业网关预读";
-      } else if (rawUA.includes("Foxmail")) {
+      if (rawUA.includes("Foxmail")) {
         envNote = "Foxmail客户端";
       } else if (rawUA.includes("Outlook")) {
         envNote = "Outlook客户端";
@@ -324,28 +416,32 @@
     return {
       ...item,
       isSelf,
-      isBot,
+      isGateway,
+      isMicrosoftGateway,
+      isGoogleProxy,
+      isBot: isBotSpider,
       isSenderSelf,
+      isClientReal,
       envNote
     };
   }
 
-  // 对单封邮件数据做结构化处理：区分客户真实查看、发件人自查与系统安全预检
+  // 对单封邮件数据做结构化处理：严格区分客户真实查看、企业网关预检与发件人自查
   function processRecord(rec) {
     if (!rec) return rec;
     const rawHistory = rec.history || [];
     const classifiedHistory = rawHistory.map(classifyHistoryItem);
 
-    // 区分客户真实查看记录与本机/系统记录
-    const clientHistory = classifiedHistory.filter((h) => !h.isSelf);
-    const selfHistory = classifiedHistory.filter((h) => h.isSelf);
+    // 严格区分客户真实查看记录、企业网关预检记录与发件人自查记录
+    const clientHistory = classifiedHistory.filter((h) => h.isClientReal);
+    const gatewayHistory = classifiedHistory.filter((h) => h.isGateway);
     const senderSelfHistory = classifiedHistory.filter((h) => h.isSenderSelf);
-    const botHistory = classifiedHistory.filter((h) => h.isBot);
+    const selfHistory = classifiedHistory.filter((h) => h.isSelf);
 
     const clientOpenCount = clientHistory.length;
-    const selfOpenCount = selfHistory.length;
+    const gatewayCount = gatewayHistory.length;
     const senderSelfCount = senderSelfHistory.length;
-    const botCount = botHistory.length;
+    const selfOpenCount = selfHistory.length;
 
     let lastClientOpenedAt = null;
     let lastClientLocation = "";
@@ -355,12 +451,14 @@
       lastClientLocation = formatLocation(last.country, last.city);
     }
 
-    let lastSelfOpenedAt = null;
-    let lastSelfLocation = "";
-    if (selfHistory.length > 0) {
-      const last = selfHistory[selfHistory.length - 1];
-      lastSelfOpenedAt = last.time;
-      lastSelfLocation = formatLocation(last.country, last.city);
+    let lastGatewayAt = null;
+    let lastGatewayLocation = "";
+    let lastGatewayNote = "";
+    if (gatewayHistory.length > 0) {
+      const last = gatewayHistory[gatewayHistory.length - 1];
+      lastGatewayAt = last.time;
+      lastGatewayLocation = formatLocation(last.country, last.city);
+      lastGatewayNote = last.envNote || "网关预检";
     }
 
     let lastSenderSelfOpenedAt = null;
@@ -375,26 +473,28 @@
       ...rec,
       history: classifiedHistory,
       clientHistory,
-      selfHistory,
+      gatewayHistory,
       senderSelfHistory,
-      botHistory,
+      selfHistory,
       clientOpenCount,
-      selfOpenCount,
+      gatewayCount,
       senderSelfCount,
-      botCount,
+      selfOpenCount,
       lastClientOpenedAt,
       lastClientLocation,
-      lastSelfOpenedAt,
-      lastSelfLocation,
+      lastGatewayAt,
+      lastGatewayLocation,
+      lastGatewayNote,
       lastSenderSelfOpenedAt,
       lastSenderSelfLocation
     };
   }
 
-  // 生成列表行内徽章配置
+  // 生成列表行内徽章配置 (对标小满 OKKI CRM 与业界标准的三态模型)
   function getBadgeConfig(rec) {
     const isClientOpened = (rec.clientOpenCount || 0) > 0;
-    const isSenderSelfOpened = !isClientOpened && (rec.senderSelfCount || 0) > 0;
+    const isGatewayChecked = !isClientOpened && (rec.gatewayCount || 0) > 0;
+    const isSenderSelfOpened = !isClientOpened && !isGatewayChecked && (rec.senderSelfCount || 0) > 0;
 
     if (isClientOpened) {
       const timeStr = formatFullDateTime(rec.lastClientOpenedAt);
@@ -403,6 +503,14 @@
       return {
         badgeClass: "nt-inline-tag opened",
         badgeText: `✓✓ 客户已读 ${rec.clientOpenCount}次${locPart}${timePart}`
+      };
+    } else if (isGatewayChecked) {
+      // 类似小满软件的“企业网关扫描/已送达”状态 (科技蓝色标识，代表邮件100%穿透防火墙并送达)
+      const gwTime = formatShortTime(rec.lastGatewayAt);
+      const gwNote = rec.lastGatewayNote || "网关预读";
+      return {
+        badgeClass: "nt-inline-tag gateway",
+        badgeText: `✓ 送达 (${gwNote} ${gwTime})`
       };
     } else if (isSenderSelfOpened) {
       const timeStr = formatFullDateTime(rec.lastSenderSelfOpenedAt);
