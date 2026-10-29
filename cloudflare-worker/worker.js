@@ -66,56 +66,66 @@ export default {
         // 异步记录追踪事件到 KV 数据库 (如果绑定了 TRACKING_KV)
         if (env.TRACKING_KV) {
           ctx.waitUntil((async () => {
-            const rawData = await env.TRACKING_KV.get(trackId);
-            let item = rawData ? JSON.parse(rawData) : {
-              id: trackId,
-              to: recipient,
-              subject: url.searchParams.get("sub") || "外贸业务邮件",
-              createdAt: now,
-              openCount: 0,
-              history: []
-            };
+            try {
+              let rawData = null;
+              try {
+                rawData = await env.TRACKING_KV.get(trackId);
+              } catch (e) {}
 
-            if (isBotScanner) {
-              item.botCount = (item.botCount || 0) + 1;
-              item.history.push({
-                time: now,
-                ip: ip,
-                country: country,
-                city: city,
-                region: region,
-                userAgent: userAgent,
-                isBot: true
-              });
-            } else {
-              item.openCount = (item.openCount || 0) + 1;
-              item.lastOpenedAt = now;
-              item.lastLocation = `${country} ${city}`.trim();
-              item.history.push({
-                time: now,
-                ip: ip,
-                country: country,
-                city: city,
-                region: region,
-                userAgent: userAgent
-              });
-            }
+              let item = rawData ? JSON.parse(rawData) : {
+                id: trackId,
+                to: recipient,
+                subject: url.searchParams.get("sub") || "外贸业务邮件",
+                createdAt: now,
+                openCount: 0,
+                history: []
+              };
 
-            // 限制最多保留最近 20 次打开记录
-            if (item.history.length > 20) {
-              item.history = item.history.slice(-20);
-            }
+              if (isBotScanner) {
+                item.botCount = (item.botCount || 0) + 1;
+                item.history.push({
+                  time: now,
+                  ip: ip,
+                  country: country,
+                  city: city,
+                  region: region,
+                  userAgent: userAgent,
+                  isBot: true
+                });
+              } else {
+                item.openCount = (item.openCount || 0) + 1;
+                item.lastOpenedAt = now;
+                item.lastLocation = `${country} ${city}`.trim();
+                item.history.push({
+                  time: now,
+                  ip: ip,
+                  country: country,
+                  city: city,
+                  region: region,
+                  userAgent: userAgent
+                });
+              }
 
-            await env.TRACKING_KV.put(trackId, JSON.stringify(item), { expirationTtl: 60 * 60 * 24 * 90 }); // 保留90天
-            
-            // 同时更新全部邮件索引列表
-            let indexRaw = await env.TRACKING_KV.get("__index__");
-            let indexList = indexRaw ? JSON.parse(indexRaw) : [];
-            if (!indexList.includes(trackId)) {
-              indexList.unshift(trackId);
-              if (indexList.length > 100) indexList = indexList.slice(0, 100);
-              await env.TRACKING_KV.put("__index__", JSON.stringify(indexList));
-            }
+              // 限制最多保留最近 20 次打开记录
+              if (item.history.length > 20) {
+                item.history = item.history.slice(-20);
+              }
+
+              try {
+                await env.TRACKING_KV.put(trackId, JSON.stringify(item), { expirationTtl: 60 * 60 * 24 * 90 }); // 保留90天
+              } catch (e) {}
+
+              // 同时更新全部邮件索引列表
+              try {
+                let indexRaw = await env.TRACKING_KV.get("__index__");
+                let indexList = indexRaw ? JSON.parse(indexRaw) : [];
+                if (!indexList.includes(trackId)) {
+                  indexList.unshift(trackId);
+                  if (indexList.length > 100) indexList = indexList.slice(0, 100);
+                  await env.TRACKING_KV.put("__index__", JSON.stringify(indexList));
+                }
+              } catch (e) {}
+            } catch (err) {}
           })());
         }
       }
@@ -148,15 +158,19 @@ export default {
             openCount: 0,
             history: []
           };
-          await env.TRACKING_KV.put(id, JSON.stringify(item), { expirationTtl: 60 * 60 * 24 * 90 });
+          try {
+            await env.TRACKING_KV.put(id, JSON.stringify(item), { expirationTtl: 60 * 60 * 24 * 90 });
+          } catch (e) {}
 
-          let indexRaw = await env.TRACKING_KV.get("__index__");
-          let indexList = indexRaw ? JSON.parse(indexRaw) : [];
-          if (!indexList.includes(id)) {
-            indexList.unshift(id);
-            if (indexList.length > 100) indexList = indexList.slice(0, 100);
-            await env.TRACKING_KV.put("__index__", JSON.stringify(indexList));
-          }
+          try {
+            let indexRaw = await env.TRACKING_KV.get("__index__");
+            let indexList = indexRaw ? JSON.parse(indexRaw) : [];
+            if (!indexList.includes(id)) {
+              indexList.unshift(id);
+              if (indexList.length > 100) indexList = indexList.slice(0, 100);
+              await env.TRACKING_KV.put("__index__", JSON.stringify(indexList));
+            }
+          } catch (e) {}
         }
         return new Response(JSON.stringify({ success: true, id }), {
           headers: { "Content-Type": "application/json", ...corsHeaders }
@@ -178,7 +192,15 @@ export default {
       }
 
       try {
-        const indexRaw = await env.TRACKING_KV.get("__index__");
+        let indexRaw = null;
+        try {
+          indexRaw = await env.TRACKING_KV.get("__index__");
+        } catch (kvGetErr) {
+          return new Response(JSON.stringify({ error: "KV daily quota reached, falling back to local cache", records: [] }), {
+            headers: { "Content-Type": "application/json", ...corsHeaders }
+          });
+        }
+
         const indexList = indexRaw ? JSON.parse(indexRaw) : [];
         const records = [];
 

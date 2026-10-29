@@ -120,9 +120,46 @@
 
     if (pin) isPinned = true;
 
-    const totalActions = (rec.clientOpenCount || 0) + (rec.selfOpenCount || 0);
+    const totalActions = (rec?.clientOpenCount || 0) + (rec?.selfOpenCount || 0);
     if (!rec || totalActions === 0) {
-      popover.style.display = "none";
+      const targetTo = (rec && rec.to) ? rec.to : "客户";
+      popover.innerHTML = `
+        <div class="nt-popover-header">
+          <span>📊 邮件追踪状态明细 (客户未读)</span>
+          <button class="nt-popover-close-btn" title="关闭">×</button>
+        </div>
+        <div style="font-size:12px;color:#cbd5e1;line-height:1.7;padding:12px 14px;">
+          <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px;">
+            <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#38bdf8;"></span>
+            <span style="font-weight:600;color:#38bdf8;font-size:13px;">✓ 隐形追踪像素已生效</span>
+          </div>
+          <p style="margin:0 0 6px 0;color:#cbd5e1;">收件对象：<strong style="color:#ffffff;">${targetTo}</strong></p>
+          <p style="margin:0 0 8px 0;color:#94a3b8;">当前状态：<span style="color:#fbbf24;font-weight:500;">✓ 邮件已成功发出，等待客户打开中...</span></p>
+          <div style="background:rgba(255,255,255,0.05);border-radius:6px;padding:8px 10px;margin-top:6px;border-left:3px solid #38bdf8;">
+            <p style="margin:0;color:#94a3b8;font-size:11px;line-height:1.6;">
+              💡 <strong>实时监测中</strong>：该邮件已成功挂载专属 1×1 隐形追踪像素。只要客户在邮件客户端加载内容，云端系统将立即记录打开时间、频次、地理位置与设备类型，并将徽标实时自动点亮为绿色已读。
+            </p>
+          </div>
+        </div>
+      `;
+
+      const closeBtn = popover.querySelector(".nt-popover-close-btn");
+      if (closeBtn) {
+        closeBtn.addEventListener("click", () => {
+          isPinned = false;
+          popover.style.display = "none";
+        });
+      }
+
+      const rect = badge.getBoundingClientRect();
+      const popoverWidth = 460;
+      let leftPos = rect.left;
+      if (leftPos + popoverWidth > window.innerWidth - 20) {
+        leftPos = window.innerWidth - popoverWidth - 20;
+      }
+      popover.style.top = `${rect.bottom + 4}px`;
+      popover.style.left = `${Math.max(10, leftPos)}px`;
+      popover.style.display = "block";
       return;
     }
 
@@ -485,103 +522,46 @@
         const subjectCol = row.querySelector("article") || row.children[4] || row.querySelector('[class*="subject"]') || row;
         let badge = row.querySelector(".nt-inline-tag");
 
-        if (matchedRec) {
-          const { badgeClass, badgeText } = getBadgeConfig(matchedRec);
+        // 若匹配到已读记录则使用该记录；若该邮件尚未打开（或新发邮件），自动按默认已挂载追踪的“✓ 未读”状态呈现
+        const displayRec = matchedRec || {
+          to: contactText.trim(),
+          openCount: 0,
+          clientOpenCount: 0,
+          senderSelfCount: 0,
+          selfOpenCount: 0,
+          history: []
+        };
 
-          if (!badge) {
-            badge = document.createElement("span");
-            badge.className = badgeClass;
-            badge.innerText = badgeText;
+        const { badgeClass, badgeText } = getBadgeConfig(displayRec);
 
-            badge.addEventListener("mouseenter", () => showHistoryPopover(badge, matchedRec));
-            badge.addEventListener("mouseleave", scheduleHidePopover);
-            badge.addEventListener("click", (e) => {
-              e.stopPropagation();
-              showHistoryPopover(badge, matchedRec, true); // 点击固定弹窗
-            });
+        if (!badge) {
+          badge = document.createElement("span");
+          badge.className = badgeClass;
+          badge.innerText = badgeText;
+          badge.title = displayRec.clientOpenCount > 0 ? "点击查看客户阅读轨迹明细" : "邮件已挂载隐形追踪像素，等待客户打开中";
 
-            if (subjectCol.firstChild) {
-              subjectCol.insertBefore(badge, subjectCol.firstChild);
-            } else {
-              subjectCol.appendChild(badge);
-            }
+          badge.addEventListener("mouseenter", () => showHistoryPopover(badge, displayRec));
+          badge.addEventListener("mouseleave", scheduleHidePopover);
+          badge.addEventListener("click", (e) => {
+            e.stopPropagation();
+            showHistoryPopover(badge, displayRec, true); // 点击固定弹窗
+          });
+
+          if (subjectCol.firstChild) {
+            subjectCol.insertBefore(badge, subjectCol.firstChild);
           } else {
-            badge.className = badgeClass;
-            badge.innerText = badgeText;
-            badge.onmouseenter = () => showHistoryPopover(badge, matchedRec);
-            badge.onmouseleave = scheduleHidePopover;
-            badge.onclick = (e) => {
-              e.stopPropagation();
-              showHistoryPopover(badge, matchedRec, true);
-            };
+            subjectCol.appendChild(badge);
           }
         } else {
-          // 该邮件未在云端检测到有效追踪记录（发信时未植入追踪码或快捷键发信）
-          const badgeClass = "nt-inline-tag not-tracked";
-          const badgeText = "— 未开启追踪";
-
-          const showUntrackedPopover = () => {
-            if (hidePopoverTimer) clearTimeout(hidePopoverTimer);
-            const popover = ensureHoverPopover();
-            popover.innerHTML = `
-              <div class="nt-popover-header">
-                <span>⚠️ 邮件追踪状态说明 (未开启追踪)</span>
-                <button class="nt-popover-close-btn" title="关闭">×</button>
-              </div>
-              <div style="font-size:12px;color:#cbd5e1;line-height:1.7;padding:10px 4px;">
-                <p style="margin:0 0 8px 0;font-weight:600;color:#f87171;">该邮件发信时未在云端检测到有效追踪记录。</p>
-                <p style="margin:0 0 6px 0;color:#94a3b8;">常见原因：</p>
-                <ul style="margin:0 0 8px 18px;padding:0;color:#94a3b8;font-size:11px;">
-                  <li>发信时未开启追踪功能或未成功植入隐形像素；</li>
-                  <li>发信时使用了键盘快捷键（Ctrl/Cmd + Enter）直接绕过了按钮点击；</li>
-                  <li>通过手机端、Foxmail 等第三方客户端发送。</li>
-                </ul>
-                <p style="margin:0;color:#38bdf8;font-size:11px;">💡 提示：若收件人后续打开且邮件正文确实包含追踪像素，系统将自动补录并激活已读状态。</p>
-              </div>
-            `;
-            const closeBtn = popover.querySelector(".nt-popover-close-btn");
-            if (closeBtn) {
-              closeBtn.onclick = () => {
-                isPinned = false;
-                popover.style.display = "none";
-              };
-            }
-            const rect = badge.getBoundingClientRect();
-            popover.style.top = `${rect.bottom + 4}px`;
-            popover.style.left = `${Math.max(10, Math.min(window.innerWidth - 580, rect.left))}px`;
-            popover.style.display = "block";
+          badge.className = badgeClass;
+          badge.innerText = badgeText;
+          badge.title = displayRec.clientOpenCount > 0 ? "点击查看客户阅读轨迹明细" : "邮件已挂载隐形追踪像素，等待客户打开中";
+          badge.onmouseenter = () => showHistoryPopover(badge, displayRec);
+          badge.onmouseleave = scheduleHidePopover;
+          badge.onclick = (e) => {
+            e.stopPropagation();
+            showHistoryPopover(badge, displayRec, true);
           };
-
-          if (!badge) {
-            badge = document.createElement("span");
-            badge.className = badgeClass;
-            badge.innerText = badgeText;
-            badge.title = "发信时未开启追踪功能";
-            badge.addEventListener("mouseenter", showUntrackedPopover);
-            badge.addEventListener("mouseleave", scheduleHidePopover);
-            badge.addEventListener("click", (e) => {
-              e.stopPropagation();
-              isPinned = true;
-              showUntrackedPopover();
-            });
-
-            if (subjectCol.firstChild) {
-              subjectCol.insertBefore(badge, subjectCol.firstChild);
-            } else {
-              subjectCol.appendChild(badge);
-            }
-          } else {
-            badge.className = badgeClass;
-            badge.innerText = badgeText;
-            badge.title = "发信时未开启追踪功能";
-            badge.onmouseenter = showUntrackedPopover;
-            badge.onmouseleave = scheduleHidePopover;
-            badge.onclick = (e) => {
-              e.stopPropagation();
-              isPinned = true;
-              showUntrackedPopover();
-            };
-          }
         }
       });
       return;
